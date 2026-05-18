@@ -1,12 +1,10 @@
 // ==UserScript==
-// @name         SXSY Auto Check-in
+// @name         尚香书苑 SXSY Auto Check-in
 // @namespace    https://sxsy*.com/
-// @version      1.1.0
-// @description  Auto-click SXSY k_misign daily check-in and solve the browser arithmetic prompt.
+// @version      1.2.0
+// @description  尚香书苑 SXSY k_misign daily check-in userscript with already-signed detection and arithmetic prompt solving.
 // @author       angus
 // @include      https://sxsy*.com/*
-// @grant        GM_getValue
-// @grant        GM_setValue
 // @grant        GM_registerMenuCommand
 // @grant        GM_notification
 // @grant        unsafeWindow
@@ -16,8 +14,8 @@
 (function () {
   'use strict';
 
-  const SCRIPT = 'SXSY Auto Check-in';
-  const LAST_ATTEMPT_DAY_KEY = 'sxsy:last-attempt-day';
+  const SITE_NAME = '尚香书苑';
+  const SCRIPT = `${SITE_NAME} SXSY Auto Check-in`;
   const SESSION_STARTED_KEY = 'sxsy:auto-checkin-started';
   const SIGN_PAGE = '/plugin.php?id=k_misign:sign';
   const WAIT_TIMEOUT_MS = 12000;
@@ -25,19 +23,10 @@
 
   installPromptSolver();
 
-  GM_registerMenuCommand('SXSY: retry check-in now', () => {
-    GM_setValue(LAST_ATTEMPT_DAY_KEY, '');
+  GM_registerMenuCommand('尚香书苑 SXSY: retry check-in now', () => {
     sessionStorage.removeItem(SESSION_STARTED_KEY);
     run(true);
   });
-
-  function todayKey() {
-    const now = new Date();
-    const yyyy = now.getFullYear();
-    const mm = String(now.getMonth() + 1).padStart(2, '0');
-    const dd = String(now.getDate()).padStart(2, '0');
-    return `${yyyy}-${mm}-${dd}`;
-  }
 
   function log(message, detail) {
     if (detail === undefined) {
@@ -100,6 +89,43 @@
       location.search.includes('id=k_misign:sign');
   }
 
+  function pageText() {
+    return document.body ? document.body.innerText : '';
+  }
+
+  function pageHtml() {
+    return document.body ? document.body.innerHTML : '';
+  }
+
+  function pageShowsAlreadySigned() {
+    const signedPhrases = [
+      '\u5df2\u7b7e\u5230',
+      '\u5df2\u7c3d\u5230',
+      '\u4eca\u65e5\u5df2',
+      '\u4eca\u5929\u5df2',
+      '\u60a8\u4eca\u5929\u5df2',
+      '\u60a8\u5df2\u7b7e\u5230',
+      '\u60a8\u5df2\u7c3d\u5230'
+    ];
+    const text = pageText();
+    if (signedPhrases.some((phrase) => text.includes(phrase))) return true;
+
+    return ['alt', 'title', 'aria-label'].some((attribute) =>
+      signedPhrases.some((phrase) => document.querySelector(`[${attribute}*="${phrase}"]`))
+    );
+  }
+
+  function pageShowsNotSigned() {
+    const unsignedPhrases = [
+      '\u60a8\u4eca\u5929\u8fd8\u6ca1\u6709\u7b7e\u5230',
+      '\u60a8\u4eca\u5929\u9084\u6c92\u6709\u7c3d\u5230',
+      '\u8fd8\u6ca1\u6709\u7b7e\u5230',
+      '\u9084\u6c92\u6709\u7c3d\u5230'
+    ];
+    const text = pageText();
+    return unsignedPhrases.some((phrase) => text.includes(phrase));
+  }
+
   function findSignPageButton() {
     return document.querySelector('#JD_sign[href*="operation=qiandao"][href*="format=text"]');
   }
@@ -123,8 +149,12 @@
 
   function goToSignPage() {
     if (isSignPage()) return;
-    sessionStorage.setItem(SESSION_STARTED_KEY, todayKey());
+    sessionStorage.setItem(SESSION_STARTED_KEY, '1');
     location.assign(`${location.origin}${SIGN_PAGE}`);
+  }
+
+  function skipClick(reason) {
+    log(reason);
   }
 
   async function run(force = false) {
@@ -133,31 +163,43 @@
       return;
     }
 
-    const today = todayKey();
-    if (!force && GM_getValue(LAST_ATTEMPT_DAY_KEY, '') === today) {
-      log(`Already attempted today: ${today}`);
-      return;
-    }
-
     if (!isSignPage()) {
-      if (force || hasAnyCheckinLink() || sessionStorage.getItem(SESSION_STARTED_KEY) === today) {
+      if (pageShowsAlreadySigned()) {
+        skipClick(`${SITE_NAME}: page shows already checked in today. Skip clicking.`);
+        return;
+      }
+
+      if (force || hasAnyCheckinLink() || sessionStorage.getItem(SESSION_STARTED_KEY) === '1') {
         goToSignPage();
       }
       return;
     }
 
+    if (pageShowsAlreadySigned()) {
+      skipClick(`${SITE_NAME}: page shows already checked in today. Skip clicking.`);
+      return;
+    }
+
     const button = await waitForButton();
+    if (pageShowsAlreadySigned()) {
+      skipClick(`${SITE_NAME}: page shows already checked in today. Skip clicking.`);
+      return;
+    }
+
     if (!button) {
-      if (!hasAnyCheckinLink()) {
-        GM_setValue(LAST_ATTEMPT_DAY_KEY, today);
-        log('No check-in link found. Treating page as already checked in.');
+      if (!hasAnyCheckinLink() && !/operation=qiandao/.test(pageHtml())) {
+        skipClick('No check-in link found. Skip clicking.');
       } else {
         log('Check-in button #JD_sign not found within timeout.');
       }
       return;
     }
 
-    GM_setValue(LAST_ATTEMPT_DAY_KEY, today);
+    if (!force && !pageShowsNotSigned()) {
+      log('Current page does not clearly show an unsigned state. Skip clicking.');
+      return;
+    }
+
     log('Clicking #JD_sign. Browser prompt will be solved automatically.');
     button.click();
     notify('SXSY check-in clicked.');
