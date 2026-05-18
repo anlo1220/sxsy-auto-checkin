@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         尚香书苑 SXSY Auto Check-in
 // @namespace    https://sxsy*.com/
-// @version      1.2.0
+// @version      1.2.1
 // @description  尚香书苑 SXSY k_misign daily check-in userscript with already-signed detection and arithmetic prompt solving.
 // @author       angus
 // @include      https://sxsy*.com/*
@@ -16,7 +16,6 @@
 
   const SITE_NAME = '尚香书苑';
   const SCRIPT = `${SITE_NAME} SXSY Auto Check-in`;
-  const SESSION_STARTED_KEY = 'sxsy:auto-checkin-started';
   const SIGN_PAGE = '/plugin.php?id=k_misign:sign';
   const WAIT_TIMEOUT_MS = 12000;
   const WAIT_INTERVAL_MS = 500;
@@ -24,7 +23,6 @@
   installPromptSolver();
 
   GM_registerMenuCommand('尚香书苑 SXSY: retry check-in now', () => {
-    sessionStorage.removeItem(SESSION_STARTED_KEY);
     run(true);
   });
 
@@ -149,7 +147,7 @@
 
   function goToSignPage() {
     if (isSignPage()) return;
-    sessionStorage.setItem(SESSION_STARTED_KEY, '1');
+    log(`${SITE_NAME}: opening sign-in plugin page to detect this account's current state.`);
     location.assign(`${location.origin}${SIGN_PAGE}`);
   }
 
@@ -169,9 +167,7 @@
         return;
       }
 
-      if (force || hasAnyCheckinLink() || sessionStorage.getItem(SESSION_STARTED_KEY) === '1') {
-        goToSignPage();
-      }
+      goToSignPage();
       return;
     }
 

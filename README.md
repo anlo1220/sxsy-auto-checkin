@@ -8,16 +8,16 @@ Tampermonkey userscript for 尚香书苑 / SXSY `k_misign` daily check-in. It op
 
 - Matches SXSY mirror domains with `https://sxsy*.com/*`.
 - Detects the current web page state first; if the page shows `已签到` / `已簽到`, it skips clicking.
-- Does not use a stored daily check-in record, so different accounts are handled independently by their actual page state.
-- Opens `plugin.php?id=k_misign:sign` when a check-in link is available.
+- Does not use `localStorage`, `sessionStorage`, or any stored daily check-in record, so different accounts are handled independently by their actual page state.
+- Opens `plugin.php?id=k_misign:sign` to detect the current account's sign-in state from the website before clicking.
 - Clicks `#JD_sign` with `operation=qiandao&format=text` only when the sign-in page clearly shows an unsigned state.
 - Intercepts native `window.prompt()` at `document-start` and solves simple arithmetic prompts such as `8 - 3 = ?`.
 - Provides a Tampermonkey menu command for manual retry.
 
 - 使用 `https://sxsy*.com/*` 匹配尚香书苑 / SXSY 鏡像網址。
 - 每次開頁都先偵測目前網頁狀態；如果頁面顯示 `已签到` / `已簽到`，就不會再點擊。
-- 不使用本地「今日已簽」紀錄，因此多帳號會依各自網頁狀態判斷，不會互相誤擋。
-- 偵測到簽到入口後，自動前往 `plugin.php?id=k_misign:sign`。
+- 不使用 `localStorage`、`sessionStorage` 或本地「今日已簽」紀錄，因此多帳號會依各自網頁狀態判斷，不會互相誤擋。
+- 自動前往 `plugin.php?id=k_misign:sign`，先從網站上的目前帳號狀態判斷是否已簽到，再決定是否點擊。
 - 只有簽到頁明確顯示未簽狀態時，才點擊 `#JD_sign` 上的 `operation=qiandao&format=text` 簽到連結。
 - 在 `document-start` 先攔截瀏覽器原生 `window.prompt()`，自動解出 `8 - 3 = ?` 這類算術驗證題。
 - Tampermonkey 選單提供手動重試。
@@ -41,22 +41,22 @@ Tampermonkey userscript for 尚香书苑 / SXSY `k_misign` daily check-in. It op
 1. Log in to a 尚香书苑 / SXSY account manually first.
 2. Open any matching SXSY page, for example a home page or forum page.
 3. The script checks the page first. If it sees `已签到` / `已簽到`, it stops.
-4. If the page is not signed and a check-in entry exists, the script opens the sign-in plugin page.
+4. If the current page does not show an already-signed state, the script opens the sign-in plugin page and checks that page again before clicking.
 5. The site may show a browser prompt like `签到验证：8 - 3 = ?`. The script answers it automatically.
 6. If you need to retry, open Tampermonkey's menu and run **尚香书苑 SXSY: retry check-in now**.
 
 1. 先手動登入尚香书苑 / SXSY 帳號。
 2. 打開任一符合 `https://sxsy*.com/*` 的頁面，例如首頁或論壇頁。
 3. 腳本會先檢查頁面；如果看到 `已签到` / `已簽到`，就直接停止。
-4. 如果頁面尚未簽到且有簽到入口，腳本會自動跳到簽到插件頁。
+4. 如果目前頁面沒有顯示已簽到，腳本會進入尚香书苑簽到插件頁，並在插件頁再次偵測狀態後才點擊。
 5. 網站可能會跳出瀏覽器原生提示框，例如 `签到验证：8 - 3 = ?`。腳本會自動回傳答案。
 6. 如果要重新嘗試，可從 Tampermonkey 選單執行 **尚香书苑 SXSY: retry check-in now**。
 
 ## Multi-account Behavior / 多帳號行為
 
-The script does not decide from a saved local date. It decides from the current page content every time. This is important when different accounts are used in the same browser profile.
+The script does not decide from a saved local date, `localStorage`, or `sessionStorage`. It opens and reads the current website page every time, then lets the website's own current-account status decide whether to click. This is important when different accounts are used in the same browser profile.
 
-腳本不會用本地儲存的日期判斷是否已簽，而是每次讀取當前網頁內容。這樣同一個瀏覽器 profile 切換不同帳號時，不會因為前一個帳號簽過就誤擋另一個帳號。
+腳本不會用本地日期、`localStorage` 或 `sessionStorage` 判斷是否已簽，而是每次開啟並讀取目前網站頁面，再依網站顯示的目前帳號狀態決定是否點擊。這樣同一個瀏覽器 profile 切換不同帳號時，不會因為前一個帳號簽過就誤擋另一個帳號。
 
 ## Notes / 注意事項
 
