@@ -1,10 +1,12 @@
 // ==UserScript==
 // @name         尚香书苑 SXSY Auto Check-in
 // @namespace    https://sxsy*.com/
-// @version      1.2.1
+// @version      1.2.2
 // @description  尚香书苑 SXSY k_misign daily check-in userscript with already-signed detection and arithmetic prompt solving.
 // @author       angus
 // @include      https://sxsy*.com/*
+// @downloadURL  https://raw.githubusercontent.com/anlo1220/sxsy-auto-checkin/refs/heads/main/sxsy-auto-checkin.user.js
+// @updateURL    https://raw.githubusercontent.com/anlo1220/sxsy-auto-checkin/refs/heads/main/sxsy-auto-checkin.user.js
 // @grant        GM_registerMenuCommand
 // @grant        GM_notification
 // @grant        unsafeWindow

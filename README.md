@@ -26,13 +26,13 @@ Tampermonkey userscript for 尚香书苑 / SXSY `k_misign` daily check-in. It op
 
 1. Install Tampermonkey in Chrome or another Chromium browser.
 2. Open the raw userscript URL:
-   <https://raw.githubusercontent.com/anlo1220/sxsy-auto-checkin/main/sxsy-auto-checkin.user.js>
+   <https://raw.githubusercontent.com/anlo1220/sxsy-auto-checkin/refs/heads/main/sxsy-auto-checkin.user.js>
 3. Tampermonkey should open the install screen. Click **Install**.
 4. Disable older generic check-in scripts for SXSY if they also run on the same site.
 
 1. 在 Chrome 或 Chromium 系瀏覽器安裝 Tampermonkey / 油猴。
 2. 打開 raw 腳本網址：
-   <https://raw.githubusercontent.com/anlo1220/sxsy-auto-checkin/main/sxsy-auto-checkin.user.js>
+   <https://raw.githubusercontent.com/anlo1220/sxsy-auto-checkin/refs/heads/main/sxsy-auto-checkin.user.js>
 3. Tampermonkey 會跳出安裝頁，按 **安裝**。
 4. 如果你原本有其他通用簽到腳本也會跑在尚香书苑 / SXSY，建議先停用，避免重複點擊或腳本衝突。
 
