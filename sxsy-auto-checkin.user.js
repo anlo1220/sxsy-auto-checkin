@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         尚香书苑 SXSY Auto Check-in
 // @namespace    https://sxsy*.com/
-// @version      1.3.0
+// @version      1.3.1
 // @description  尚香书苑 SXSY k_misign daily check-in userscript with already-signed detection and arithmetic prompt solving.
 // @author       angus
 // @include      https://sxsy*.com/*
@@ -23,7 +23,7 @@
   const SIGN_PAGE = '/plugin.php?id=k_misign:sign';
   const RETURN_HOME_KEY = 'sxsy:auto-checkin:return-home-after-sign';
   const RETURN_HOME_DEFAULT = true;
-  const RETURN_HOME_DELAY_MS = 3500;
+  const RETURN_HOME_DELAY_MS = 500;
   const WAIT_TIMEOUT_MS = 12000;
   const WAIT_INTERVAL_MS = 500;
 

@@ -45,7 +45,7 @@ Tampermonkey userscript for 尚香书苑 / SXSY `k_misign` daily check-in. It op
 3. The script checks the page first. If it sees `已签到` / `已簽到`, it stops.
 4. If the current page does not show an already-signed state, the script opens the sign-in plugin page and checks that page again before clicking.
 5. The site may show a browser prompt like `签到验证：8 - 3 = ?`. The script answers it automatically.
-6. By default, the script returns to the homepage a few seconds after clicking check-in.
+6. By default, the script returns to the homepage about 0.5 seconds after clicking check-in.
 7. To change that behavior, open Tampermonkey's menu and run **尚香书苑 SXSY: 簽到後跳回首頁 / 留在簽到頁**.
 8. If you need to retry, open Tampermonkey's menu and run **尚香书苑 SXSY: retry check-in now**.
 
@@ -54,7 +54,7 @@ Tampermonkey userscript for 尚香书苑 / SXSY `k_misign` daily check-in. It op
 3. 腳本會先檢查頁面；如果看到 `已签到` / `已簽到`，就直接停止。
 4. 如果目前頁面沒有顯示已簽到，腳本會進入尚香书苑簽到插件頁，並在插件頁再次偵測狀態後才點擊。
 5. 網站可能會跳出瀏覽器原生提示框，例如 `签到验证：8 - 3 = ?`。腳本會自動回傳答案。
-6. 預設會在點擊簽到後幾秒跳回首頁。
+6. 預設會在點擊簽到後約 0.5 秒跳回首頁。
 7. 如果要改成留在簽到頁，可從 Tampermonkey 選單執行 **尚香书苑 SXSY: 簽到後跳回首頁 / 留在簽到頁**。
 8. 如果要重新嘗試，可從 Tampermonkey 選單執行 **尚香书苑 SXSY: retry check-in now**。
 
