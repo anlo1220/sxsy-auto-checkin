@@ -1,13 +1,15 @@
 // ==UserScript==
 // @name         尚香书苑 SXSY Auto Check-in
 // @namespace    https://sxsy*.com/
-// @version      1.2.2
+// @version      1.3.0
 // @description  尚香书苑 SXSY k_misign daily check-in userscript with already-signed detection and arithmetic prompt solving.
 // @author       angus
 // @include      https://sxsy*.com/*
 // @downloadURL  https://raw.githubusercontent.com/anlo1220/sxsy-auto-checkin/refs/heads/main/sxsy-auto-checkin.user.js
 // @updateURL    https://raw.githubusercontent.com/anlo1220/sxsy-auto-checkin/refs/heads/main/sxsy-auto-checkin.user.js
 // @grant        GM_registerMenuCommand
+// @grant        GM_getValue
+// @grant        GM_setValue
 // @grant        GM_notification
 // @grant        unsafeWindow
 // @run-at       document-start
@@ -19,14 +21,25 @@
   const SITE_NAME = '尚香书苑';
   const SCRIPT = `${SITE_NAME} SXSY Auto Check-in`;
   const SIGN_PAGE = '/plugin.php?id=k_misign:sign';
+  const RETURN_HOME_KEY = 'sxsy:auto-checkin:return-home-after-sign';
+  const RETURN_HOME_DEFAULT = true;
+  const RETURN_HOME_DELAY_MS = 3500;
   const WAIT_TIMEOUT_MS = 12000;
   const WAIT_INTERVAL_MS = 500;
 
   installPromptSolver();
+  registerMenuCommands();
 
-  GM_registerMenuCommand('尚香书苑 SXSY: retry check-in now', () => {
-    run(true);
-  });
+  function registerMenuCommands() {
+    GM_registerMenuCommand('尚香书苑 SXSY: retry check-in now', () => {
+      run(true);
+    });
+
+    GM_registerMenuCommand(
+      `尚香书苑 SXSY: 簽到後${shouldReturnHomeAfterSign() ? '跳回首頁' : '留在簽到頁'} (click to change)`,
+      configureReturnHomeAfterSign
+    );
+  }
 
   function log(message, detail) {
     if (detail === undefined) {
@@ -42,6 +55,22 @@
     } catch (_) {
       log(text);
     }
+  }
+
+  function shouldReturnHomeAfterSign() {
+    return Boolean(GM_getValue(RETURN_HOME_KEY, RETURN_HOME_DEFAULT));
+  }
+
+  function configureReturnHomeAfterSign() {
+    const current = shouldReturnHomeAfterSign();
+    const enabled = window.confirm(
+      `${SITE_NAME} 簽到後要跳回首頁嗎？\n\n` +
+      `目前設定：${current ? '簽到後跳回首頁' : '留在簽到頁'}\n\n` +
+      '按「確定」= 簽到後跳回首頁\n' +
+      '按「取消」= 留在簽到頁'
+    );
+    GM_setValue(RETURN_HOME_KEY, enabled);
+    notify(`簽到後動作：${enabled ? '跳回首頁' : '留在簽到頁'}`);
   }
 
   function solveArithmeticPrompt(message) {
@@ -89,6 +118,12 @@
       location.search.includes('id=k_misign:sign');
   }
 
+  function isCheckinActionPage() {
+    return isSignPage() &&
+      location.search.includes('operation=qiandao') &&
+      location.search.includes('format=text');
+  }
+
   function pageText() {
     return document.body ? document.body.innerText : '';
   }
@@ -105,7 +140,9 @@
       '\u4eca\u5929\u5df2',
       '\u60a8\u4eca\u5929\u5df2',
       '\u60a8\u5df2\u7b7e\u5230',
-      '\u60a8\u5df2\u7c3d\u5230'
+      '\u60a8\u5df2\u7c3d\u5230',
+      '\u7b7e\u5230\u6210\u529f',
+      '\u7c3d\u5230\u6210\u529f'
     ];
     const text = pageText();
     if (signedPhrases.some((phrase) => text.includes(phrase))) return true;
@@ -153,6 +190,18 @@
     location.assign(`${location.origin}${SIGN_PAGE}`);
   }
 
+  function goToHomePageAfterSign() {
+    if (!shouldReturnHomeAfterSign()) {
+      log('Return-home setting is off. Stay on the sign-in page after clicking.');
+      return;
+    }
+
+    window.setTimeout(() => {
+      log(`${SITE_NAME}: returning to homepage after check-in click.`);
+      location.assign(`${location.origin}/`);
+    }, RETURN_HOME_DELAY_MS);
+  }
+
   function skipClick(reason) {
     log(reason);
   }
@@ -160,6 +209,12 @@
   async function run(force = false) {
     if (isLoginPage()) {
       log('Login page detected. Sign in manually first, then open the site again.');
+      return;
+    }
+
+    if (isCheckinActionPage()) {
+      log('Check-in text response page detected.');
+      goToHomePageAfterSign();
       return;
     }
 
@@ -201,6 +256,7 @@
     log('Clicking #JD_sign. Browser prompt will be solved automatically.');
     button.click();
     notify('SXSY check-in clicked.');
+    goToHomePageAfterSign();
   }
 
   if (document.readyState === 'loading') {
