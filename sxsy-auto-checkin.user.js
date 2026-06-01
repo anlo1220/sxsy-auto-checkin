@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         尚香书苑 SXSY Auto Check-in
 // @namespace    https://sxsy*.com/
-// @version      1.3.1
+// @version      1.3.2
 // @description  尚香书苑 SXSY k_misign daily check-in userscript with already-signed detection and arithmetic prompt solving.
-// @author       angus
+// @author       anlo1220
 // @include      https://sxsy*.com/*
 // @downloadURL  https://raw.githubusercontent.com/anlo1220/sxsy-auto-checkin/refs/heads/main/sxsy-auto-checkin.user.js
 // @updateURL    https://raw.githubusercontent.com/anlo1220/sxsy-auto-checkin/refs/heads/main/sxsy-auto-checkin.user.js
@@ -124,6 +124,22 @@
       location.search.includes('format=text');
   }
 
+  function currentScriptName() {
+    const parts = location.pathname.split('/');
+    return (parts[parts.length - 1] || '').toLowerCase();
+  }
+
+  function isInteractivePage() {
+    const scriptName = currentScriptName();
+    const query = location.search.toLowerCase();
+    return scriptName === 'search.php' ||
+      scriptName === 'home.php' ||
+      scriptName === 'member.php' ||
+      scriptName === 'connect.php' ||
+      (scriptName === 'forum.php' && /(?:^|[?&])mod=(?:post|search|redirect|collection)\b/.test(query)) ||
+      (scriptName === 'misc.php' && /(?:^|[?&])mod=(?:tag|ranklist|faq)\b/.test(query));
+  }
+
   function pageText() {
     return document.body ? document.body.innerText : '';
   }
@@ -221,6 +237,11 @@
     if (!isSignPage()) {
       if (pageShowsAlreadySigned()) {
         skipClick(`${SITE_NAME}: page shows already checked in today. Skip clicking.`);
+        return;
+      }
+
+      if (!force && isInteractivePage()) {
+        skipClick('Interactive page detected. Skip automatic sign-in navigation.');
         return;
       }
 
