@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         尚香书苑 SXSY Auto Check-in
 // @namespace    https://sxsy*.com/
-// @version      1.3.2
+// @version      1.4.0
 // @description  尚香书苑 SXSY k_misign daily check-in userscript with already-signed detection and arithmetic prompt solving.
 // @author       anlo1220
 // @include      https://sxsy*.com/*
@@ -26,6 +26,24 @@
   const RETURN_HOME_DELAY_MS = 500;
   const WAIT_TIMEOUT_MS = 12000;
   const WAIT_INTERVAL_MS = 500;
+  const SIGNED_PHRASES = [
+    '\u5df2\u7b7e\u5230',
+    '\u5df2\u7c3d\u5230',
+    '\u4eca\u65e5\u5df2\u7b7e\u5230',
+    '\u4eca\u65e5\u5df2\u7c3d\u5230',
+    '\u4eca\u5929\u5df2\u7b7e\u5230',
+    '\u4eca\u5929\u5df2\u7c3d\u5230',
+    '\u60a8\u4eca\u5929\u5df2\u7b7e\u5230',
+    '\u60a8\u4eca\u5929\u5df2\u7c3d\u5230',
+    '\u7b7e\u5230\u6210\u529f',
+    '\u7c3d\u5230\u6210\u529f'
+  ];
+  const UNSIGNED_PHRASES = [
+    '\u60a8\u4eca\u5929\u8fd8\u6ca1\u6709\u7b7e\u5230',
+    '\u60a8\u4eca\u5929\u9084\u6c92\u6709\u7c3d\u5230',
+    '\u8fd8\u6ca1\u6709\u7b7e\u5230',
+    '\u9084\u6c92\u6709\u7c3d\u5230'
+  ];
 
   installPromptSolver();
   registerMenuCommands();
@@ -129,15 +147,11 @@
     return (parts[parts.length - 1] || '').toLowerCase();
   }
 
-  function isInteractivePage() {
+  function isAutoStartPage() {
     const scriptName = currentScriptName();
-    const query = location.search.toLowerCase();
-    return scriptName === 'search.php' ||
-      scriptName === 'home.php' ||
-      scriptName === 'member.php' ||
-      scriptName === 'connect.php' ||
-      (scriptName === 'forum.php' && /(?:^|[?&])mod=(?:post|search|redirect|collection)\b/.test(query)) ||
-      (scriptName === 'misc.php' && /(?:^|[?&])mod=(?:tag|ranklist|faq)\b/.test(query));
+    const mod = (new URLSearchParams(location.search).get('mod') || '').toLowerCase();
+    if (!scriptName || scriptName === 'index.php') return true;
+    return (scriptName === 'forum.php' || scriptName === 'portal.php') && (!mod || mod === 'index');
   }
 
   function pageText() {
@@ -148,35 +162,32 @@
     return document.body ? document.body.innerHTML : '';
   }
 
-  function pageShowsAlreadySigned() {
-    const signedPhrases = [
-      '\u5df2\u7b7e\u5230',
-      '\u5df2\u7c3d\u5230',
-      '\u4eca\u65e5\u5df2',
-      '\u4eca\u5929\u5df2',
-      '\u60a8\u4eca\u5929\u5df2',
-      '\u60a8\u5df2\u7b7e\u5230',
-      '\u60a8\u5df2\u7c3d\u5230',
-      '\u7b7e\u5230\u6210\u529f',
-      '\u7c3d\u5230\u6210\u529f'
-    ];
-    const text = pageText();
-    if (signedPhrases.some((phrase) => text.includes(phrase))) return true;
+  function elementShowsSignedState(element) {
+    if (!element) return false;
+    const values = [
+      element.textContent,
+      element.getAttribute && element.getAttribute('alt'),
+      element.getAttribute && element.getAttribute('title'),
+      element.getAttribute && element.getAttribute('aria-label')
+    ].filter(Boolean);
+    return SIGNED_PHRASES.some((phrase) => values.some((value) => value.includes(phrase)));
+  }
 
-    return ['alt', 'title', 'aria-label'].some((attribute) =>
-      signedPhrases.some((phrase) => document.querySelector(`[${attribute}*="${phrase}"]`))
-    );
+  function pageShowsAlreadySigned() {
+    if (isSignPage()) return elementShowsSignedState(document.body);
+
+    const statusElements = new Set(document.querySelectorAll(
+      '#fx_checkin_b, #JD_sign, a[href*="id=k_misign:sign"], a[href*="operation=qiandao"]'
+    ));
+    for (const element of Array.from(statusElements)) {
+      if (element.parentElement) statusElements.add(element.parentElement);
+    }
+    return Array.from(statusElements).some(elementShowsSignedState);
   }
 
   function pageShowsNotSigned() {
-    const unsignedPhrases = [
-      '\u60a8\u4eca\u5929\u8fd8\u6ca1\u6709\u7b7e\u5230',
-      '\u60a8\u4eca\u5929\u9084\u6c92\u6709\u7c3d\u5230',
-      '\u8fd8\u6ca1\u6709\u7b7e\u5230',
-      '\u9084\u6c92\u6709\u7c3d\u5230'
-    ];
     const text = pageText();
-    return unsignedPhrases.some((phrase) => text.includes(phrase));
+    return UNSIGNED_PHRASES.some((phrase) => text.includes(phrase));
   }
 
   function findSignPageButton() {
@@ -195,6 +206,19 @@
         if (button || Date.now() - started >= WAIT_TIMEOUT_MS) {
           clearInterval(timer);
           resolve(button);
+        }
+      }, WAIT_INTERVAL_MS);
+    });
+  }
+
+  function waitForSignedState() {
+    return new Promise((resolve) => {
+      const started = Date.now();
+      const timer = setInterval(() => {
+        const signed = pageShowsAlreadySigned();
+        if (signed || Date.now() - started >= WAIT_TIMEOUT_MS) {
+          clearInterval(timer);
+          resolve(signed);
         }
       }, WAIT_INTERVAL_MS);
     });
@@ -229,19 +253,23 @@
     }
 
     if (isCheckinActionPage()) {
-      log('Check-in text response page detected.');
-      goToHomePageAfterSign();
+      if (pageShowsAlreadySigned()) {
+        log('Check-in success response detected.');
+        goToHomePageAfterSign();
+      } else {
+        log('Check-in response did not confirm success. Stay on the response page.');
+      }
       return;
     }
 
     if (!isSignPage()) {
-      if (pageShowsAlreadySigned()) {
-        skipClick(`${SITE_NAME}: page shows already checked in today. Skip clicking.`);
+      if (!force && !isAutoStartPage()) {
+        skipClick('Non-start page detected. Skip automatic sign-in navigation.');
         return;
       }
 
-      if (!force && isInteractivePage()) {
-        skipClick('Interactive page detected. Skip automatic sign-in navigation.');
+      if (pageShowsAlreadySigned()) {
+        skipClick(`${SITE_NAME}: page shows already checked in today. Skip clicking.`);
         return;
       }
 
@@ -277,7 +305,13 @@
     log('Clicking #JD_sign. Browser prompt will be solved automatically.');
     button.click();
     notify('SXSY check-in clicked.');
-    goToHomePageAfterSign();
+    if (await waitForSignedState()) {
+      notify('SXSY check-in confirmed.');
+      goToHomePageAfterSign();
+    } else {
+      log('Check-in was clicked, but the page did not confirm success. Stay on the sign-in page.');
+      notify('SXSY check-in was not confirmed.');
+    }
   }
 
   if (document.readyState === 'loading') {
