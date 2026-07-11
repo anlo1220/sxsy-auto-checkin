@@ -8,22 +8,22 @@ Tampermonkey userscript for 尚香书苑 / SXSY `k_misign` daily check-in. It op
 
 - Matches SXSY mirror domains with `https://sxsy*.com/*`.
 - Detects the current web page state first; if the page shows `已签到` / `已簽到`, it skips clicking.
-- Does not use `localStorage`, `sessionStorage`, or any stored daily check-in record, so different accounts are handled independently by their actual page state.
+- Does not store daily check-in state. It keeps only a temporary same-tab return URL in `sessionStorage`, so different accounts are still decided independently by the website state.
 - Opens `plugin.php?id=k_misign:sign` automatically only from the site homepage or forum/portal index; other pages keep normal browsing uninterrupted.
 - Reads signed state only from the sign-in page or known check-in controls instead of scanning arbitrary forum content.
 - Clicks `#JD_sign` with `operation=qiandao&format=text` only when the sign-in page clearly shows an unsigned state.
 - Intercepts native `window.prompt()` at `document-start` and solves simple arithmetic prompts such as `8 - 3 = ?`.
-- Configurable post-check-in action: after the website confirms success, return to the homepage after about 0.5 seconds by default, or stay on the sign-in page.
+- Configurable post-check-in action: after the website confirms success, return to the page that started check-in after about 0.5 seconds by default, or stay on the sign-in page.
 - Provides a Tampermonkey menu command for manual retry.
 
 - 使用 `https://sxsy*.com/*` 匹配尚香书苑 / SXSY 鏡像網址。
 - 每次開頁都先偵測目前網頁狀態；如果頁面顯示 `已签到` / `已簽到`，就不會再點擊。
-- 不使用 `localStorage`、`sessionStorage` 或本地「今日已簽」紀錄，因此多帳號會依各自網頁狀態判斷，不會互相誤擋。
+- 不保存本地「今日已簽」狀態；`sessionStorage` 只暫存同一分頁的返回網址，因此多帳號仍依各自網頁狀態判斷，不會互相誤擋。
 - 只有網站首頁或論壇／門戶首頁會自動前往 `plugin.php?id=k_misign:sign`；搜尋、文章與其他頁面不會打斷正常瀏覽。
 - 已簽到狀態只從簽到頁或已知簽到元件判斷，不掃描任意論壇文章內容。
 - 只有簽到頁明確顯示未簽狀態時，才點擊 `#JD_sign` 上的 `operation=qiandao&format=text` 簽到連結。
 - 在 `document-start` 先攔截瀏覽器原生 `window.prompt()`，自動解出 `8 - 3 = ?` 這類算術驗證題。
-- 可設定簽到後動作：網站確認成功後，預設約 0.5 秒跳回首頁，也可以改成留在簽到頁。
+- 可設定簽到後動作：網站確認成功後，預設約 0.5 秒返回啟動簽到的前一頁，也可以改成留在簽到頁。
 - Tampermonkey 選單提供手動重試。
 
 ## Install / 安裝
@@ -47,8 +47,8 @@ Tampermonkey userscript for 尚香书苑 / SXSY `k_misign` daily check-in. It op
 3. The script checks the page first. If it sees `已签到` / `已簽到`, it stops.
 4. If the homepage check-in control does not show an already-signed state, the script opens the sign-in plugin page and checks that page again before clicking.
 5. The site may show a browser prompt like `签到验证：8 - 3 = ?`. The script answers it automatically.
-6. The script waits for `签到成功` / `已签到`. Only then does the default 0.5-second homepage countdown begin; failed or unconfirmed responses stay visible.
-7. To change that behavior, open Tampermonkey's menu and run **尚香书苑 SXSY: 簽到後跳回首頁 / 留在簽到頁**.
+6. The script waits for `签到成功` / `已签到`, including success reported through a browser alert. Only then does the default 0.5-second return countdown begin; failed or unconfirmed responses stay visible.
+7. To change that behavior, open Tampermonkey's menu and run **尚香书苑 SXSY: 簽到後返回前一頁 / 留在簽到頁**.
 8. If you need to retry, open Tampermonkey's menu and run **尚香书苑 SXSY: retry check-in now**.
 
 1. 先手動登入尚香书苑 / SXSY 帳號。
@@ -56,8 +56,8 @@ Tampermonkey userscript for 尚香书苑 / SXSY `k_misign` daily check-in. It op
 3. 腳本會先檢查頁面；如果看到 `已签到` / `已簽到`，就直接停止。
 4. 如果首頁簽到元件沒有顯示已簽到，腳本會進入尚香书苑簽到插件頁，並在插件頁再次偵測狀態後才點擊。
 5. 網站可能會跳出瀏覽器原生提示框，例如 `签到验证：8 - 3 = ?`。腳本會自動回傳答案。
-6. 腳本會等待網站顯示 `签到成功` / `已签到`，確認後才開始預設 0.5 秒回首頁倒數；失敗或未確認的結果會留在畫面上。
-7. 如果要改成留在簽到頁，可從 Tampermonkey 選單執行 **尚香书苑 SXSY: 簽到後跳回首頁 / 留在簽到頁**。
+6. 腳本會等待網站顯示 `签到成功` / `已签到`，也會捕捉瀏覽器成功彈窗；確認後才開始預設 0.5 秒返回前一頁倒數，失敗或未確認的結果會留在畫面上。
+7. 如果要改成留在簽到頁，可從 Tampermonkey 選單執行 **尚香书苑 SXSY: 簽到後返回前一頁 / 留在簽到頁**。
 8. 如果要重新嘗試，可從 Tampermonkey 選單執行 **尚香书苑 SXSY: retry check-in now**。
 
 ## Multi-account Behavior / 多帳號行為
@@ -69,13 +69,13 @@ The script does not decide from a saved local date, `localStorage`, `sessionStor
 ## Notes / 注意事項
 
 - This script does not store passwords or cookies.
-- It only stores the post-check-in homepage redirect preference. It does not store check-in status.
+- It stores the post-check-in return preference and one temporary same-tab return URL. It does not store check-in status.
 - You must already be logged in. The script does not automate login.
 - It only solves simple arithmetic prompts using `+`, `-`, `*`, `x`, `X`, or `/`.
 - If a prompt is already open before installing or updating the script, close it or refresh the page. The prompt solver only works when loaded before the site calls `window.prompt()`.
 
 - 腳本不保存帳號、密碼或 Cookie。
-- 只會保存「簽到後是否跳回首頁」這個偏好設定，不保存簽到狀態。
+- 只會保存「簽到後是否返回」偏好，並在同一分頁暫存一次返回網址；不保存簽到狀態。
 - 必須先登入網站；腳本不處理登入流程。
 - 只處理 `+`、`-`、`*`、`x`、`X`、`/` 這類簡單算術驗證。
 - 如果安裝或更新腳本前，驗證框已經跳出，請先關掉或重新整理頁面。自動解題必須在網站呼叫 `window.prompt()` 前載入才有效。

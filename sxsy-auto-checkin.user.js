@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         尚香书苑 SXSY Auto Check-in
 // @namespace    https://sxsy*.com/
-// @version      1.4.0
+// @version      1.4.1
 // @description  尚香书苑 SXSY k_misign daily check-in userscript with already-signed detection and arithmetic prompt solving.
 // @author       anlo1220
 // @include      https://sxsy*.com/*
@@ -21,9 +21,10 @@
   const SITE_NAME = '尚香书苑';
   const SCRIPT = `${SITE_NAME} SXSY Auto Check-in`;
   const SIGN_PAGE = '/plugin.php?id=k_misign:sign';
-  const RETURN_HOME_KEY = 'sxsy:auto-checkin:return-home-after-sign';
-  const RETURN_HOME_DEFAULT = true;
-  const RETURN_HOME_DELAY_MS = 500;
+  const RETURN_AFTER_SIGN_KEY = 'sxsy:auto-checkin:return-home-after-sign';
+  const RETURN_PAGE_KEY = 'sxsy:auto-checkin:return-page';
+  const RETURN_AFTER_SIGN_DEFAULT = true;
+  const RETURN_AFTER_SIGN_DELAY_MS = 500;
   const WAIT_TIMEOUT_MS = 12000;
   const WAIT_INTERVAL_MS = 500;
   const SIGNED_PHRASES = [
@@ -45,7 +46,9 @@
     '\u9084\u6c92\u6709\u7c3d\u5230'
   ];
 
-  installPromptSolver();
+  let checkinConfirmed = false;
+
+  installDialogHooks();
   registerMenuCommands();
 
   function registerMenuCommands() {
@@ -54,8 +57,8 @@
     });
 
     GM_registerMenuCommand(
-      `尚香书苑 SXSY: 簽到後${shouldReturnHomeAfterSign() ? '跳回首頁' : '留在簽到頁'} (click to change)`,
-      configureReturnHomeAfterSign
+      `尚香书苑 SXSY: 簽到後${shouldReturnAfterSign() ? '返回前一頁' : '留在簽到頁'} (click to change)`,
+      configureReturnAfterSign
     );
   }
 
@@ -75,20 +78,20 @@
     }
   }
 
-  function shouldReturnHomeAfterSign() {
-    return Boolean(GM_getValue(RETURN_HOME_KEY, RETURN_HOME_DEFAULT));
+  function shouldReturnAfterSign() {
+    return Boolean(GM_getValue(RETURN_AFTER_SIGN_KEY, RETURN_AFTER_SIGN_DEFAULT));
   }
 
-  function configureReturnHomeAfterSign() {
-    const current = shouldReturnHomeAfterSign();
+  function configureReturnAfterSign() {
+    const current = shouldReturnAfterSign();
     const enabled = window.confirm(
-      `${SITE_NAME} 簽到後要跳回首頁嗎？\n\n` +
-      `目前設定：${current ? '簽到後跳回首頁' : '留在簽到頁'}\n\n` +
-      '按「確定」= 簽到後跳回首頁\n' +
+      `${SITE_NAME} 簽到後要返回前一頁嗎？\n\n` +
+      `目前設定：${current ? '簽到後返回前一頁' : '留在簽到頁'}\n\n` +
+      '按「確定」= 簽到後返回前一頁\n' +
       '按「取消」= 留在簽到頁'
     );
-    GM_setValue(RETURN_HOME_KEY, enabled);
-    notify(`簽到後動作：${enabled ? '跳回首頁' : '留在簽到頁'}`);
+    GM_setValue(RETURN_AFTER_SIGN_KEY, enabled);
+    notify(`簽到後動作：${enabled ? '返回前一頁' : '留在簽到頁'}`);
   }
 
   function solveArithmeticPrompt(message) {
@@ -109,7 +112,7 @@
     return Number.isFinite(answer) ? String(answer) : null;
   }
 
-  function installPromptSolver() {
+  function installDialogHooks() {
     const pageWindow = typeof unsafeWindow === 'undefined' ? window : unsafeWindow;
     if (pageWindow.__sxsyPromptSolverInstalled) return;
     pageWindow.__sxsyPromptSolverInstalled = true;
@@ -122,6 +125,13 @@
         return answer;
       }
       return originalPrompt(message, defaultValue);
+    };
+
+    const originalAlert = pageWindow.alert.bind(pageWindow);
+    pageWindow.alert = function sxsyAlert(message) {
+      const text = String(message || '');
+      if (SIGNED_PHRASES.some((phrase) => text.includes(phrase))) checkinConfirmed = true;
+      return originalAlert(message);
     };
   }
 
@@ -174,6 +184,7 @@
   }
 
   function pageShowsAlreadySigned() {
+    if (checkinConfirmed) return true;
     if (isSignPage()) return elementShowsSignedState(document.body);
 
     const statusElements = new Set(document.querySelectorAll(
@@ -226,20 +237,47 @@
 
   function goToSignPage() {
     if (isSignPage()) return;
+    try {
+      sessionStorage.setItem(RETURN_PAGE_KEY, location.href);
+    } catch (_) {
+      log('Could not remember the return page. Homepage fallback will be used.');
+    }
     log(`${SITE_NAME}: opening sign-in plugin page to detect this account's current state.`);
     location.assign(`${location.origin}${SIGN_PAGE}`);
   }
 
-  function goToHomePageAfterSign() {
-    if (!shouldReturnHomeAfterSign()) {
-      log('Return-home setting is off. Stay on the sign-in page after clicking.');
+  function takeReturnPage() {
+    let stored = '';
+    try {
+      stored = sessionStorage.getItem(RETURN_PAGE_KEY) || '';
+      sessionStorage.removeItem(RETURN_PAGE_KEY);
+    } catch (_) {
+      log('Could not read the remembered return page.');
+    }
+
+    for (const candidate of [stored, document.referrer]) {
+      try {
+        const url = new URL(candidate);
+        const isSignUrl = url.pathname.endsWith('/plugin.php') && url.searchParams.get('id') === 'k_misign:sign';
+        if (url.origin === location.origin && !isSignUrl) return url.href;
+      } catch (_) {
+        // Ignore missing or invalid return URLs.
+      }
+    }
+    return `${location.origin}/`;
+  }
+
+  function returnAfterSign() {
+    const returnPage = takeReturnPage();
+    if (!shouldReturnAfterSign()) {
+      log('Return setting is off. Stay on the sign-in page after success.');
       return;
     }
 
     window.setTimeout(() => {
-      log(`${SITE_NAME}: returning to homepage after check-in click.`);
-      location.assign(`${location.origin}/`);
-    }, RETURN_HOME_DELAY_MS);
+      log(`${SITE_NAME}: returning to ${returnPage}`);
+      location.replace(returnPage);
+    }, RETURN_AFTER_SIGN_DELAY_MS);
   }
 
   function skipClick(reason) {
@@ -255,7 +293,7 @@
     if (isCheckinActionPage()) {
       if (pageShowsAlreadySigned()) {
         log('Check-in success response detected.');
-        goToHomePageAfterSign();
+        returnAfterSign();
       } else {
         log('Check-in response did not confirm success. Stay on the response page.');
       }
@@ -278,13 +316,15 @@
     }
 
     if (pageShowsAlreadySigned()) {
-      skipClick(`${SITE_NAME}: page shows already checked in today. Skip clicking.`);
+      log(`${SITE_NAME}: page shows already checked in today.`);
+      returnAfterSign();
       return;
     }
 
     const button = await waitForButton();
     if (pageShowsAlreadySigned()) {
-      skipClick(`${SITE_NAME}: page shows already checked in today. Skip clicking.`);
+      log(`${SITE_NAME}: page changed to already checked in.`);
+      returnAfterSign();
       return;
     }
 
@@ -307,7 +347,7 @@
     notify('SXSY check-in clicked.');
     if (await waitForSignedState()) {
       notify('SXSY check-in confirmed.');
-      goToHomePageAfterSign();
+      returnAfterSign();
     } else {
       log('Check-in was clicked, but the page did not confirm success. Stay on the sign-in page.');
       notify('SXSY check-in was not confirmed.');

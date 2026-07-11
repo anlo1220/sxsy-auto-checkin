@@ -17,7 +17,13 @@ function element(text = '') {
   };
 }
 
-async function runScenario(url, { bodyText = '', buttonResult = null, signedControl = false } = {}) {
+async function runScenario(url, {
+  bodyText = '',
+  buttonResult = null,
+  signedControl = false,
+  returnPage = '',
+  referrer = ''
+} = {}) {
   const parsed = new URL(url);
   const navigations = [];
   const queue = [];
@@ -25,6 +31,16 @@ async function runScenario(url, { bodyText = '', buttonResult = null, signedCont
   const control = signedControl ? element('已签到') : null;
   const button = buttonResult ? element() : null;
 
+  const schedule = (callback) => {
+    queue.push(callback);
+    return queue.length;
+  };
+  const window = {
+    alert() {},
+    confirm() { return true; },
+    prompt() { return null; },
+    setTimeout: schedule
+  };
   if (button) {
     button.click = () => {
       if (buttonResult === 'success') {
@@ -32,21 +48,13 @@ async function runScenario(url, { bodyText = '', buttonResult = null, signedCont
         body.innerText = '签到成功';
         body.innerHTML = '签到成功';
       }
+      if (buttonResult === 'alert-success') window.alert('签到成功');
     };
   }
-
-  const schedule = (callback) => {
-    queue.push(callback);
-    return queue.length;
-  };
-  const window = {
-    confirm() { return true; },
-    prompt() { return null; },
-    setTimeout: schedule
-  };
   const document = {
     readyState: 'complete',
     body,
+    referrer,
     addEventListener() {},
     querySelector(selector) {
       if (selector === '#JD_sign[href*="operation=qiandao"][href*="format=text"]') return button;
@@ -62,7 +70,14 @@ async function runScenario(url, { bodyText = '', buttonResult = null, signedCont
     pathname: parsed.pathname,
     search: parsed.search,
     origin: parsed.origin,
-    assign(target) { navigations.push(target); }
+    assign(target) { navigations.push(target); },
+    replace(target) { navigations.push(target); }
+  };
+  const storage = new Map(returnPage ? [['sxsy:auto-checkin:return-page', returnPage]] : []);
+  const sessionStorage = {
+    getItem(key) { return storage.has(key) ? storage.get(key) : null; },
+    removeItem(key) { storage.delete(key); },
+    setItem(key, value) { storage.set(key, String(value)); }
   };
 
   vm.runInNewContext(source, {
@@ -73,11 +88,13 @@ async function runScenario(url, { bodyText = '', buttonResult = null, signedCont
     Promise,
     Set,
     String,
+    URL,
     URLSearchParams,
     clearInterval() {},
     console: { info() {} },
     document,
     location,
+    sessionStorage,
     setInterval: schedule,
     unsafeWindow: window,
     window,
@@ -108,6 +125,13 @@ async function main() {
   assert.deepEqual(await runScenario(`${signPage}&operation=qiandao&format=text`, { bodyText: '验证码错误' }), []);
   assert.deepEqual(await runScenario(signPage, { bodyText: '您今天还没有签到', buttonResult: 'success' }), ['https://sxsy18.com/']);
   assert.deepEqual(await runScenario(signPage, { bodyText: '您今天还没有签到', buttonResult: 'failure' }), []);
+  const previousPage = 'https://sxsy18.com/search.php?mod=forum';
+  assert.deepEqual(await runScenario(signPage, { bodyText: '已签到', returnPage: previousPage }), [previousPage]);
+  assert.deepEqual(await runScenario(signPage, {
+    bodyText: '您今天还没有签到',
+    buttonResult: 'alert-success',
+    returnPage: previousPage
+  }), [previousPage]);
   console.log('userscript regression checks passed');
 }
 
