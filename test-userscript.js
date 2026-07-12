@@ -20,7 +20,7 @@ function element(text = '') {
 async function runScenario(url, {
   bodyText = '',
   buttonResult = null,
-  signedControl = false,
+  remoteState = 'unsigned',
   returnPage = '',
   referrer = ''
 } = {}) {
@@ -28,7 +28,6 @@ async function runScenario(url, {
   const navigations = [];
   const queue = [];
   const body = element(bodyText);
-  const control = signedControl ? element('已签到') : null;
   const button = buttonResult ? element() : null;
 
   const schedule = (callback) => {
@@ -61,9 +60,7 @@ async function runScenario(url, {
       if (selector === 'a[href*="operation=qiandao"], #fx_checkin_b[src*="mini.gif"]') return button;
       return null;
     },
-    querySelectorAll() {
-      return control ? [control] : [];
-    }
+    querySelectorAll() { return []; }
   };
   const location = {
     href: parsed.href,
@@ -79,11 +76,44 @@ async function runScenario(url, {
     removeItem(key) { storage.delete(key); },
     setItem(key, value) { storage.set(key, String(value)); }
   };
+  const remoteText = {
+    signed: '已签到',
+    unsigned: '您今天还没有签到',
+    login: '',
+    unknown: ''
+  }[remoteState] || '';
+  class DOMParser {
+    parseFromString() {
+      return {
+        body: element(remoteText),
+        querySelector(selector) {
+          if (selector === 'input[name="username"], input[name="password"]') {
+            return remoteState === 'login' ? element() : null;
+          }
+          if (selector === '#JD_sign[href*="operation=qiandao"][href*="format=text"]') {
+            return remoteState === 'unsigned' ? element() : null;
+          }
+          return null;
+        },
+        querySelectorAll() { return []; }
+      };
+    }
+  }
+  async function fetch() {
+    return {
+      ok: remoteState !== 'http-error',
+      url: remoteState === 'login'
+        ? 'https://sxsy18.com/member.php?mod=logging'
+        : 'https://sxsy18.com/plugin.php?id=k_misign:sign',
+      async text() { return remoteText; }
+    };
+  }
 
   vm.runInNewContext(source, {
     Array,
     Boolean,
     Date,
+    DOMParser,
     Number,
     Promise,
     Set,
@@ -93,6 +123,7 @@ async function runScenario(url, {
     clearInterval() {},
     console: { info() {} },
     document,
+    fetch,
     location,
     sessionStorage,
     setInterval: schedule,
@@ -120,7 +151,9 @@ async function main() {
   assert.deepEqual(await runScenario('https://sxsy18.com/forum.php?mod=viewthread&tid=1'), []);
   assert.deepEqual(await runScenario('https://sxsy18.com/forum.php?mod=forumdisplay&fid=2'), []);
   assert.deepEqual(await runScenario('https://sxsy18.com/', { bodyText: '帖子内容：我已签到' }), [signPage]);
-  assert.deepEqual(await runScenario('https://sxsy18.com/', { signedControl: true }), []);
+  assert.deepEqual(await runScenario('https://sxsy18.com/', { remoteState: 'signed' }), []);
+  assert.deepEqual(await runScenario('https://sxsy18.com/', { remoteState: 'unknown' }), []);
+  assert.deepEqual(await runScenario('https://sxsy18.com/', { remoteState: 'login' }), []);
   assert.deepEqual(await runScenario(`${signPage}&operation=qiandao&format=text`, { bodyText: '签到成功' }), ['https://sxsy18.com/']);
   assert.deepEqual(await runScenario(`${signPage}&operation=qiandao&format=text`, { bodyText: '验证码错误' }), []);
   assert.deepEqual(await runScenario(signPage, { bodyText: '您今天还没有签到', buttonResult: 'success' }), ['https://sxsy18.com/']);

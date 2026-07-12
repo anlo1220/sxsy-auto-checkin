@@ -7,9 +7,9 @@ Tampermonkey userscript for 尚香书苑 / SXSY `k_misign` daily check-in. It op
 ## Features / 功能
 
 - Matches SXSY mirror domains with `https://sxsy*.com/*`.
-- Detects the current web page state first; if the page shows `已签到` / `已簽到`, it skips clicking.
+- Fetches the sign-in plugin page in the background with the current account session; if it shows `已签到` / `已簽到`, the current page never navigates away.
 - Does not store daily check-in state. It keeps only a temporary same-tab return URL in `sessionStorage`, so different accounts are still decided independently by the website state.
-- Opens `plugin.php?id=k_misign:sign` automatically only from the site homepage or forum/portal index; other pages keep normal browsing uninterrupted.
+- Opens `plugin.php?id=k_misign:sign` only when the background response clearly shows an unsigned state; unknown or login responses stay on the current page.
 - Reads signed state only from the sign-in page or known check-in controls instead of scanning arbitrary forum content.
 - Clicks `#JD_sign` with `operation=qiandao&format=text` only when the sign-in page clearly shows an unsigned state.
 - Intercepts native `window.prompt()` at `document-start` and solves simple arithmetic prompts such as `8 - 3 = ?`.
@@ -17,9 +17,9 @@ Tampermonkey userscript for 尚香书苑 / SXSY `k_misign` daily check-in. It op
 - Provides a Tampermonkey menu command for manual retry.
 
 - 使用 `https://sxsy*.com/*` 匹配尚香书苑 / SXSY 鏡像網址。
-- 每次開頁都先偵測目前網頁狀態；如果頁面顯示 `已签到` / `已簽到`，就不會再點擊。
+- 使用目前帳號的網站 session 在背景讀取簽到插件頁；如果顯示 `已签到` / `已簽到`，目前頁面完全不會跳走。
 - 不保存本地「今日已簽」狀態；`sessionStorage` 只暫存同一分頁的返回網址，因此多帳號仍依各自網頁狀態判斷，不會互相誤擋。
-- 只有網站首頁或論壇／門戶首頁會自動前往 `plugin.php?id=k_misign:sign`；搜尋、文章與其他頁面不會打斷正常瀏覽。
+- 只有背景回應明確顯示未簽到，才前往 `plugin.php?id=k_misign:sign`；狀態不明或回到登入頁時會留在目前頁面。
 - 已簽到狀態只從簽到頁或已知簽到元件判斷，不掃描任意論壇文章內容。
 - 只有簽到頁明確顯示未簽狀態時，才點擊 `#JD_sign` 上的 `operation=qiandao&format=text` 簽到連結。
 - 在 `document-start` 先攔截瀏覽器原生 `window.prompt()`，自動解出 `8 - 3 = ?` 這類算術驗證題。
@@ -44,8 +44,8 @@ Tampermonkey userscript for 尚香书苑 / SXSY `k_misign` daily check-in. It op
 
 1. Log in to a 尚香书苑 / SXSY account manually first.
 2. Open the SXSY homepage, forum index, or portal index. Search, thread, profile, and other pages do not auto-start check-in.
-3. The script checks the page first. If it sees `已签到` / `已簽到`, it stops.
-4. If the homepage check-in control does not show an already-signed state, the script opens the sign-in plugin page and checks that page again before clicking.
+3. The script fetches the sign-in plugin page in the background using the current account cookies.
+4. If the response is already signed, the browser stays on the current page. Only a clearly unsigned response opens the visible sign-in page.
 5. The site may show a browser prompt like `签到验证：8 - 3 = ?`. The script answers it automatically.
 6. The script waits for `签到成功` / `已签到`, including success reported through a browser alert. Only then does the default 0.5-second return countdown begin; failed or unconfirmed responses stay visible.
 7. To change that behavior, open Tampermonkey's menu and run **尚香书苑 SXSY: 簽到後返回前一頁 / 留在簽到頁**.
@@ -53,8 +53,8 @@ Tampermonkey userscript for 尚香书苑 / SXSY `k_misign` daily check-in. It op
 
 1. 先手動登入尚香书苑 / SXSY 帳號。
 2. 打開 SXSY 網站首頁、論壇首頁或門戶首頁。搜尋、文章、個人頁及其他頁面不會自動啟動簽到。
-3. 腳本會先檢查頁面；如果看到 `已签到` / `已簽到`，就直接停止。
-4. 如果首頁簽到元件沒有顯示已簽到，腳本會進入尚香书苑簽到插件頁，並在插件頁再次偵測狀態後才點擊。
+3. 腳本會使用目前帳號 Cookie，在背景取得簽到插件頁並判斷狀態。
+4. 如果背景回應已簽到，瀏覽器會留在目前頁面；只有明確未簽到才開啟可見的簽到頁。
 5. 網站可能會跳出瀏覽器原生提示框，例如 `签到验证：8 - 3 = ?`。腳本會自動回傳答案。
 6. 腳本會等待網站顯示 `签到成功` / `已签到`，也會捕捉瀏覽器成功彈窗；確認後才開始預設 0.5 秒返回前一頁倒數，失敗或未確認的結果會留在畫面上。
 7. 如果要改成留在簽到頁，可從 Tampermonkey 選單執行 **尚香书苑 SXSY: 簽到後返回前一頁 / 留在簽到頁**。
@@ -62,9 +62,9 @@ Tampermonkey userscript for 尚香书苑 / SXSY `k_misign` daily check-in. It op
 
 ## Multi-account Behavior / 多帳號行為
 
-The script does not decide from a saved local date, `localStorage`, `sessionStorage`, or Tampermonkey storage. It opens and reads the current website page every time, then lets the website's own current-account status decide whether to click. This is important when different accounts are used in the same browser profile.
+The script does not decide from a saved local date, `localStorage`, or stored check-in state. It fetches the website's sign-in page every time and lets the current account response decide whether to navigate and click. This is important when different accounts are used in the same browser profile.
 
-腳本不會用本地日期、`localStorage`、`sessionStorage` 或 Tampermonkey 儲存資料判斷是否已簽，而是每次開啟並讀取目前網站頁面，再依網站顯示的目前帳號狀態決定是否點擊。這樣同一個瀏覽器 profile 切換不同帳號時，不會因為前一個帳號簽過就誤擋另一個帳號。
+腳本不會用本地日期、`localStorage` 或儲存的簽到狀態判斷是否已簽，而是每次背景取得網站簽到頁，再依目前帳號的回應決定是否跳轉與點擊。這樣同一個瀏覽器 profile 切換不同帳號時，不會因為前一個帳號簽過就誤擋另一個帳號。
 
 ## Notes / 注意事項
 

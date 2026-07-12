@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         尚香书苑 SXSY Auto Check-in
 // @namespace    https://sxsy*.com/
-// @version      1.4.1
+// @version      1.5.0
 // @description  尚香书苑 SXSY k_misign daily check-in userscript with already-signed detection and arithmetic prompt solving.
 // @author       anlo1220
 // @include      https://sxsy*.com/*
@@ -164,10 +164,6 @@
     return (scriptName === 'forum.php' || scriptName === 'portal.php') && (!mod || mod === 'index');
   }
 
-  function pageText() {
-    return document.body ? document.body.innerText : '';
-  }
-
   function pageHtml() {
     return document.body ? document.body.innerHTML : '';
   }
@@ -175,7 +171,7 @@
   function elementShowsSignedState(element) {
     if (!element) return false;
     const values = [
-      element.textContent,
+      element.innerText || element.textContent,
       element.getAttribute && element.getAttribute('alt'),
       element.getAttribute && element.getAttribute('title'),
       element.getAttribute && element.getAttribute('aria-label')
@@ -183,22 +179,45 @@
     return SIGNED_PHRASES.some((phrase) => values.some((value) => value.includes(phrase)));
   }
 
+  function documentShowsSignedState(doc) {
+    if (elementShowsSignedState(doc.body)) return true;
+    return Array.from(doc.querySelectorAll(
+      '#fx_checkin_b, #JD_sign, [alt*="签到"], [alt*="簽到"], [title*="签到"], [title*="簽到"], [aria-label*="签到"], [aria-label*="簽到"]'
+    )).some(elementShowsSignedState);
+  }
+
   function pageShowsAlreadySigned() {
     if (checkinConfirmed) return true;
-    if (isSignPage()) return elementShowsSignedState(document.body);
+    return documentShowsSignedState(document);
+  }
 
-    const statusElements = new Set(document.querySelectorAll(
-      '#fx_checkin_b, #JD_sign, a[href*="id=k_misign:sign"], a[href*="operation=qiandao"]'
-    ));
-    for (const element of Array.from(statusElements)) {
-      if (element.parentElement) statusElements.add(element.parentElement);
-    }
-    return Array.from(statusElements).some(elementShowsSignedState);
+  function documentShowsNotSigned(doc) {
+    const text = doc.body ? doc.body.innerText || doc.body.textContent || '' : '';
+    return UNSIGNED_PHRASES.some((phrase) => text.includes(phrase)) ||
+      Boolean(doc.querySelector('#JD_sign[href*="operation=qiandao"][href*="format=text"]'));
   }
 
   function pageShowsNotSigned() {
-    const text = pageText();
-    return UNSIGNED_PHRASES.some((phrase) => text.includes(phrase));
+    return documentShowsNotSigned(document);
+  }
+
+  async function fetchSignPageState() {
+    try {
+      const response = await fetch(`${location.origin}${SIGN_PAGE}`, {
+        cache: 'no-store',
+        credentials: 'same-origin'
+      });
+      if (!response.ok) return 'unknown';
+
+      const doc = new DOMParser().parseFromString(await response.text(), 'text/html');
+      if (/member\.php\?.*mod=logging|action=login/.test(response.url || '') ||
+          doc.querySelector('input[name="username"], input[name="password"]')) return 'login';
+      if (documentShowsSignedState(doc)) return 'signed';
+      if (documentShowsNotSigned(doc)) return 'unsigned';
+    } catch (error) {
+      log('Could not inspect the sign-in page in the background.', error);
+    }
+    return 'unknown';
   }
 
   function findSignPageButton() {
@@ -306,8 +325,22 @@
         return;
       }
 
-      if (pageShowsAlreadySigned()) {
-        skipClick(`${SITE_NAME}: page shows already checked in today. Skip clicking.`);
+      if (force) {
+        goToSignPage();
+        return;
+      }
+
+      const signState = await fetchSignPageState();
+      if (signState === 'signed') {
+        skipClick(`${SITE_NAME}: background check shows already checked in today.`);
+        return;
+      }
+      if (signState === 'login') {
+        log('Background check reached the login page. Sign in manually first.');
+        return;
+      }
+      if (signState !== 'unsigned') {
+        log('Background check could not determine sign-in state. Stay on the current page.');
         return;
       }
 
