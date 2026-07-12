@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         尚香书苑 SXSY Auto Check-in
 // @namespace    https://sxsy*.com/
-// @version      1.5.0
+// @version      1.5.1
 // @description  尚香书苑 SXSY k_misign daily check-in userscript with already-signed detection and arithmetic prompt solving.
 // @author       anlo1220
 // @include      https://sxsy*.com/*
@@ -141,9 +141,12 @@
       document.querySelector('input[name="username"], input[name="password"]');
   }
 
+  function isSignUrl(url) {
+    return url.searchParams.get('id') === 'k_misign:sign';
+  }
+
   function isSignPage() {
-    return location.pathname.endsWith('/plugin.php') &&
-      location.search.includes('id=k_misign:sign');
+    return isSignUrl(new URL(location.href));
   }
 
   function isCheckinActionPage() {
@@ -277,8 +280,7 @@
     for (const candidate of [stored, document.referrer]) {
       try {
         const url = new URL(candidate);
-        const isSignUrl = url.pathname.endsWith('/plugin.php') && url.searchParams.get('id') === 'k_misign:sign';
-        if (url.origin === location.origin && !isSignUrl) return url.href;
+        if (url.origin === location.origin && !isSignUrl(url)) return url.href;
       } catch (_) {
         // Ignore missing or invalid return URLs.
       }

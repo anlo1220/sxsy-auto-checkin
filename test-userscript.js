@@ -165,6 +165,16 @@ async function main() {
     buttonResult: 'alert-success',
     returnPage: previousPage
   }), [previousPage]);
+  const slashSignPage = 'https://sxsy18.com/plugin.php/?id=k_misign:sign';
+  assert.deepEqual(await runScenario(slashSignPage, {
+    bodyText: '您今天还没有签到',
+    buttonResult: 'success',
+    returnPage: previousPage
+  }), [previousPage]);
+  assert.deepEqual(await runScenario(`${signPage}&operation=qiandao&format=text`, {
+    bodyText: '签到成功',
+    returnPage: slashSignPage
+  }), ['https://sxsy18.com/']);
   console.log('userscript regression checks passed');
 }
 
