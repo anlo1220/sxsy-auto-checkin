@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         尚香书苑 SXSY Auto Check-in
 // @namespace    https://sxsy*.com/
-// @version      1.5.1
+// @version      1.5.2
 // @description  尚香书苑 SXSY k_misign daily check-in userscript with already-signed detection and arithmetic prompt solving.
 // @author       anlo1220
 // @include      https://sxsy*.com/*
@@ -36,6 +36,7 @@
     '\u4eca\u5929\u5df2\u7c3d\u5230',
     '\u60a8\u4eca\u5929\u5df2\u7b7e\u5230',
     '\u60a8\u4eca\u5929\u5df2\u7c3d\u5230',
+    '\u60a8\u7684\u7b7e\u5230\u6392\u540d',
     '\u7b7e\u5230\u6210\u529f',
     '\u7c3d\u5230\u6210\u529f'
   ];

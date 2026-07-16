@@ -7,7 +7,7 @@ Tampermonkey userscript for 尚香书苑 / SXSY `k_misign` daily check-in. It op
 ## Features / 功能
 
 - Matches SXSY mirror domains with `https://sxsy*.com/*`.
-- Fetches the sign-in plugin page in the background with the current account session; if it shows `已签到` / `已簽到`, the current page never navigates away.
+- Fetches the sign-in plugin page in the background with the current account session; signed text or the site's signed-in ranking view keeps the current page from navigating away.
 - Does not store daily check-in state. It keeps only a temporary same-tab return URL in `sessionStorage`, so different accounts are still decided independently by the website state.
 - Opens `plugin.php?id=k_misign:sign` only when the background response clearly shows an unsigned state; unknown or login responses stay on the current page.
 - Reads signed state only from the sign-in page or known check-in controls instead of scanning arbitrary forum content.
@@ -17,7 +17,7 @@ Tampermonkey userscript for 尚香书苑 / SXSY `k_misign` daily check-in. It op
 - Provides a Tampermonkey menu command for manual retry.
 
 - 使用 `https://sxsy*.com/*` 匹配尚香书苑 / SXSY 鏡像網址。
-- 使用目前帳號的網站 session 在背景讀取簽到插件頁；如果顯示 `已签到` / `已簽到`，目前頁面完全不會跳走。
+- 使用目前帳號的網站 session 在背景讀取簽到插件頁；若顯示 `已签到` / `已簽到` 或站方簽到排名畫面，目前頁面完全不會跳走。
 - 不保存本地「今日已簽」狀態；`sessionStorage` 只暫存同一分頁的返回網址，因此多帳號仍依各自網頁狀態判斷，不會互相誤擋。
 - 只有背景回應明確顯示未簽到，才前往 `plugin.php?id=k_misign:sign`；狀態不明或回到登入頁時會留在目前頁面。
 - 已簽到狀態只從簽到頁或已知簽到元件判斷，不掃描任意論壇文章內容。
@@ -47,7 +47,7 @@ Tampermonkey userscript for 尚香书苑 / SXSY `k_misign` daily check-in. It op
 3. The script fetches the sign-in plugin page in the background using the current account cookies.
 4. If the response is already signed, the browser stays on the current page. Only a clearly unsigned response opens the visible sign-in page.
 5. The site may show a browser prompt like `签到验证：8 - 3 = ?`. The script answers it automatically.
-6. The script waits for `签到成功` / `已签到`, including success reported through a browser alert. Only then does the default 0.5-second return countdown begin; failed or unconfirmed responses stay visible.
+6. The script waits for `签到成功` / `已签到`, a success alert, or the site's signed-in ranking view. Only then does the default 0.5-second return countdown begin; failed or unconfirmed responses stay visible.
 7. To change that behavior, open Tampermonkey's menu and run **尚香书苑 SXSY: 簽到後返回前一頁 / 留在簽到頁**.
 8. If you need to retry, open Tampermonkey's menu and run **尚香书苑 SXSY: retry check-in now**.
 
@@ -56,7 +56,7 @@ Tampermonkey userscript for 尚香书苑 / SXSY `k_misign` daily check-in. It op
 3. 腳本會使用目前帳號 Cookie，在背景取得簽到插件頁並判斷狀態。
 4. 如果背景回應已簽到，瀏覽器會留在目前頁面；只有明確未簽到才開啟可見的簽到頁。
 5. 網站可能會跳出瀏覽器原生提示框，例如 `签到验证：8 - 3 = ?`。腳本會自動回傳答案。
-6. 腳本會等待網站顯示 `签到成功` / `已签到`，也會捕捉瀏覽器成功彈窗；確認後才開始預設 0.5 秒返回前一頁倒數，失敗或未確認的結果會留在畫面上。
+6. 腳本會等待網站顯示 `签到成功` / `已签到`、成功彈窗或已簽到後的排名畫面；確認後才開始預設 0.5 秒返回前一頁倒數，失敗或未確認的結果會留在畫面上。
 7. 如果要改成留在簽到頁，可從 Tampermonkey 選單執行 **尚香书苑 SXSY: 簽到後返回前一頁 / 留在簽到頁**。
 8. 如果要重新嘗試，可從 Tampermonkey 選單執行 **尚香书苑 SXSY: retry check-in now**。
 

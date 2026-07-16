@@ -160,6 +160,7 @@ async function main() {
   assert.deepEqual(await runScenario(signPage, { bodyText: '您今天还没有签到', buttonResult: 'failure' }), []);
   const previousPage = 'https://sxsy18.com/search.php?mod=forum';
   assert.deepEqual(await runScenario(signPage, { bodyText: '已签到', returnPage: previousPage }), [previousPage]);
+  assert.deepEqual(await runScenario(signPage, { bodyText: '您的签到排名：31641', returnPage: previousPage }), [previousPage]);
   assert.deepEqual(await runScenario(signPage, {
     bodyText: '您今天还没有签到',
     buttonResult: 'alert-success',
