@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         尚香书苑 SXSY Auto Check-in
 // @namespace    https://sxsy*.com/
-// @version      1.5.2
+// @version      1.5.3
 // @description  尚香书苑 SXSY k_misign daily check-in userscript with already-signed detection and arithmetic prompt solving.
 // @author       anlo1220
 // @include      https://sxsy*.com/*
@@ -48,14 +48,15 @@
   ];
 
   let checkinConfirmed = false;
+  let checkinAttempted = false;
+  let running = false;
+  let navigationPending = false;
 
   installDialogHooks();
   registerMenuCommands();
 
   function registerMenuCommands() {
-    GM_registerMenuCommand('尚香书苑 SXSY: retry check-in now', () => {
-      run(true);
-    });
+    GM_registerMenuCommand('尚香书苑 SXSY: retry check-in now', () => run(true));
 
     GM_registerMenuCommand(
       `尚香书苑 SXSY: 簽到後${shouldReturnAfterSign() ? '返回前一頁' : '留在簽到頁'} (click to change)`,
@@ -214,6 +215,8 @@
       if (!response.ok) return 'unknown';
 
       const doc = new DOMParser().parseFromString(await response.text(), 'text/html');
+      // Detached DOM innerText includes unexecuted scripts and hidden templates.
+      doc.querySelectorAll('script, style, template, noscript').forEach((node) => node.remove());
       if (/member\.php\?.*mod=logging|action=login/.test(response.url || '') ||
           doc.querySelector('input[name="username"], input[name="password"]')) return 'login';
       if (documentShowsSignedState(doc)) return 'signed';
@@ -260,24 +263,41 @@
 
   function goToSignPage() {
     if (isSignPage()) return;
-    try {
-      sessionStorage.setItem(RETURN_PAGE_KEY, location.href);
-    } catch (_) {
-      log('Could not remember the return page. Homepage fallback will be used.');
-    }
+    rememberReturnPage(location.href);
+    navigationPending = true;
     log(`${SITE_NAME}: opening sign-in plugin page to detect this account's current state.`);
     location.assign(`${location.origin}${SIGN_PAGE}`);
   }
 
-  function takeReturnPage() {
-    let stored = '';
+  function rememberReturnPage(url) {
     try {
-      stored = sessionStorage.getItem(RETURN_PAGE_KEY) || '';
+      sessionStorage.setItem(RETURN_PAGE_KEY, url);
+    } catch (_) {
+      log('Could not remember the return page. Homepage fallback will be used.');
+    }
+  }
+
+  function readReturnPage() {
+    try {
+      const url = new URL(sessionStorage.getItem(RETURN_PAGE_KEY));
+      if (url.origin === location.origin && !isSignUrl(url)) return url.href;
+    } catch (_) {
+      // Missing, invalid, or inaccessible storage is not an active return flow.
+    }
+    return '';
+  }
+
+  function clearReturnPage() {
+    try {
       sessionStorage.removeItem(RETURN_PAGE_KEY);
     } catch (_) {
-      log('Could not read the remembered return page.');
+      log('Could not clear the remembered return page.');
     }
+  }
 
+  function takeReturnPage() {
+    const stored = readReturnPage();
+    clearReturnPage();
     for (const candidate of [stored, document.referrer]) {
       try {
         const url = new URL(candidate);
@@ -290,12 +310,18 @@
   }
 
   function returnAfterSign() {
+    if (navigationPending) return;
+    if (!checkinAttempted && !isCheckinActionPage() && !readReturnPage()) {
+      log('Already checked in. Stay on the manually opened sign-in page.');
+      return;
+    }
     const returnPage = takeReturnPage();
     if (!shouldReturnAfterSign()) {
       log('Return setting is off. Stay on the sign-in page after success.');
       return;
     }
 
+    navigationPending = true;
     window.setTimeout(() => {
       log(`${SITE_NAME}: returning to ${returnPage}`);
       location.replace(returnPage);
@@ -307,6 +333,22 @@
   }
 
   async function run(force = false) {
+    if (running || navigationPending) return;
+    running = true;
+    checkinAttempted = false;
+    try {
+      await runCheckin(force);
+    } catch (error) {
+      navigationPending = false;
+      log('Check-in stopped because of an error.', error);
+      notify('SXSY check-in was not confirmed.');
+    } finally {
+      running = false;
+      if (!navigationPending) clearReturnPage();
+    }
+  }
+
+  async function runCheckin(force) {
     if (isLoginPage()) {
       log('Login page detected. Sign in manually first, then open the site again.');
       return;
@@ -379,6 +421,8 @@
     }
 
     log('Clicking #JD_sign. Browser prompt will be solved automatically.');
+    if (!readReturnPage()) rememberReturnPage(takeReturnPage());
+    checkinAttempted = true;
     button.click();
     notify('SXSY check-in clicked.');
     if (await waitForSignedState()) {

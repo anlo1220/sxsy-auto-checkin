@@ -11,20 +11,26 @@ Tampermonkey userscript for 尚香书苑 / SXSY `k_misign` daily check-in. It op
 - Does not store daily check-in state. It keeps only a temporary same-tab return URL in `sessionStorage`, so different accounts are still decided independently by the website state.
 - Opens `plugin.php?id=k_misign:sign` only when the background response clearly shows an unsigned state; unknown or login responses stay on the current page.
 - Reads signed state only from the sign-in page or known check-in controls instead of scanning arbitrary forum content.
+- Removes scripts, styles, templates, and noscript content from background HTML before checking status, so unused success messages cannot mark an account as signed.
 - Clicks `#JD_sign` with `operation=qiandao&format=text` only when the sign-in page clearly shows an unsigned state.
 - Intercepts native `window.prompt()` at `document-start` and solves simple arithmetic prompts such as `8 - 3 = ?`.
 - Configurable post-check-in action: after the website confirms success, return to the page that started check-in after about 0.5 seconds by default, or stay on the sign-in page.
 - Provides a Tampermonkey menu command for manual retry.
+- Ignores overlapping retries while a check-in or return navigation is in progress. Failed attempts release the lock for another manual retry.
+- Manually opening an already-signed ranking page stays there. Automatic return applies to an active check-in flow.
 
 - 使用 `https://sxsy*.com/*` 匹配尚香书苑 / SXSY 鏡像網址。
 - 使用目前帳號的網站 session 在背景讀取簽到插件頁；若顯示 `已签到` / `已簽到` 或站方簽到排名畫面，目前頁面完全不會跳走。
 - 不保存本地「今日已簽」狀態；`sessionStorage` 只暫存同一分頁的返回網址，因此多帳號仍依各自網頁狀態判斷，不會互相誤擋。
 - 只有背景回應明確顯示未簽到，才前往 `plugin.php?id=k_misign:sign`；狀態不明或回到登入頁時會留在目前頁面。
 - 已簽到狀態只從簽到頁或已知簽到元件判斷，不掃描任意論壇文章內容。
+- 背景 HTML 判斷前會移除程式、樣式、樣板與 noscript 內容，避免未執行的成功訊息造成誤判。
 - 只有簽到頁明確顯示未簽狀態時，才點擊 `#JD_sign` 上的 `operation=qiandao&format=text` 簽到連結。
 - 在 `document-start` 先攔截瀏覽器原生 `window.prompt()`，自動解出 `8 - 3 = ?` 這類算術驗證題。
 - 可設定簽到後動作：網站確認成功後，預設約 0.5 秒返回啟動簽到的前一頁，也可以改成留在簽到頁。
 - Tampermonkey 選單提供手動重試。
+- 簽到或返回過程中會忽略重複重試；失敗後可再次手動重試。
+- 手動開啟已簽到的排名頁會留在原頁；自動返回只適用於進行中的簽到流程。
 
 ## Install / 安裝
 
@@ -84,3 +90,5 @@ The script does not decide from a saved local date, `localStorage`, or stored ch
 
 - Userscript: [`sxsy-auto-checkin.user.js`](./sxsy-auto-checkin.user.js)
 - Regression check: run `node test-userscript.js`.
+- Optional browser check: with Playwright and Chrome available, run `node test-browser.js`. All website requests are fulfilled locally; it does not use your signed-in browser or consume a daily check-in.
+- 可選瀏覽器測試：環境已有 Playwright 與 Chrome 時，執行 `node test-browser.js`。所有網站請求均在本機模擬，不使用登入中的瀏覽器，也不消耗每日簽到機會。
