@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         尚香书苑 SXSY Auto Check-in
 // @namespace    https://sxsy*.com/
-// @version      1.5.3
+// @version      1.5.4
 // @description  尚香书苑 SXSY k_misign daily check-in userscript with already-signed detection and arithmetic prompt solving.
 // @author       anlo1220
 // @include      https://sxsy*.com/*
@@ -26,6 +26,7 @@
   const RETURN_AFTER_SIGN_DEFAULT = true;
   const RETURN_AFTER_SIGN_DELAY_MS = 500;
   const WAIT_TIMEOUT_MS = 12000;
+  const REQUEST_TIMEOUT_MS = 12000;
   const WAIT_INTERVAL_MS = 500;
   const SIGNED_PHRASES = [
     '\u5df2\u7b7e\u5230',
@@ -175,8 +176,11 @@
 
   function elementShowsSignedState(element) {
     if (!element) return false;
+    const renderedText = typeof element.innerText === 'string'
+      ? element.innerText
+      : element.textContent;
     const values = [
-      element.innerText || element.textContent,
+      renderedText,
       element.getAttribute && element.getAttribute('alt'),
       element.getAttribute && element.getAttribute('title'),
       element.getAttribute && element.getAttribute('aria-label')
@@ -196,6 +200,17 @@
     return documentShowsSignedState(document);
   }
 
+  function removeNonRenderedNodes(doc) {
+    doc.querySelectorAll('script, style, template, noscript, [hidden], [aria-hidden="true"]')
+      .forEach((node) => node.remove());
+    doc.querySelectorAll('[style]').forEach((node) => {
+      const style = node.getAttribute('style') || '';
+      if (/(^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden)\s*(?:;|$)/i.test(style)) {
+        node.remove();
+      }
+    });
+  }
+
   function documentShowsNotSigned(doc) {
     const text = doc.body ? doc.body.innerText || doc.body.textContent || '' : '';
     return UNSIGNED_PHRASES.some((phrase) => text.includes(phrase)) ||
@@ -207,22 +222,45 @@
   }
 
   async function fetchSignPageState() {
+    let timeoutId;
+    let controller;
     try {
-      const response = await fetch(`${location.origin}${SIGN_PAGE}`, {
+      const AbortControllerCtor = typeof AbortController === 'function' ? AbortController : null;
+      controller = AbortControllerCtor ? new AbortControllerCtor() : null;
+      const options = {
         cache: 'no-store',
         credentials: 'same-origin'
+      };
+      if (controller) options.signal = controller.signal;
+
+      const request = fetch(`${location.origin}${SIGN_PAGE}`, options);
+      const timeout = new Promise((_, reject) => {
+        timeoutId = window.setTimeout(() => {
+          if (controller) controller.abort();
+          reject(new Error('Sign-in page inspection timed out.'));
+        }, REQUEST_TIMEOUT_MS);
       });
+      const response = await Promise.race([request, timeout]);
       if (!response.ok) return 'unknown';
 
-      const doc = new DOMParser().parseFromString(await response.text(), 'text/html');
-      // Detached DOM innerText includes unexecuted scripts and hidden templates.
-      doc.querySelectorAll('script, style, template, noscript').forEach((node) => node.remove());
+      const html = await Promise.race([response.text(), timeout]);
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      // Detached DOM innerText includes unexecuted scripts and hidden content.
+      removeNonRenderedNodes(doc);
       if (/member\.php\?.*mod=logging|action=login/.test(response.url || '') ||
           doc.querySelector('input[name="username"], input[name="password"]')) return 'login';
       if (documentShowsSignedState(doc)) return 'signed';
       if (documentShowsNotSigned(doc)) return 'unsigned';
     } catch (error) {
-      log('Could not inspect the sign-in page in the background.', error);
+      if (error && error.message === 'Sign-in page inspection timed out.') {
+        log('Background sign-in inspection timed out.', error);
+      } else {
+        log('Could not inspect the sign-in page in the background.', error);
+      }
+    } finally {
+      if (timeoutId !== undefined && typeof window.clearTimeout === 'function') {
+        window.clearTimeout(timeoutId);
+      }
     }
     return 'unknown';
   }
@@ -311,18 +349,21 @@
 
   function returnAfterSign() {
     if (navigationPending) return;
-    if (!checkinAttempted && !isCheckinActionPage() && !readReturnPage()) {
+    const storedReturnPage = readReturnPage();
+    if (!checkinAttempted && !isCheckinActionPage() && !storedReturnPage) {
       log('Already checked in. Stay on the manually opened sign-in page.');
       return;
     }
-    const returnPage = takeReturnPage();
+    const returnPage = storedReturnPage || takeReturnPage();
     if (!shouldReturnAfterSign()) {
+      clearReturnPage();
       log('Return setting is off. Stay on the sign-in page after success.');
       return;
     }
 
     navigationPending = true;
     window.setTimeout(() => {
+      clearReturnPage();
       log(`${SITE_NAME}: returning to ${returnPage}`);
       location.replace(returnPage);
     }, RETURN_AFTER_SIGN_DELAY_MS);

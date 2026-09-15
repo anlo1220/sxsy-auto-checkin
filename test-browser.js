@@ -39,6 +39,7 @@ async function main() {
         html = signed ? '<p>您的签到排名：31641</p>' : `
           <p>您今天还没有签到</p>
           <a id="JD_sign" href="${signPath}&operation=qiandao&format=text">签到</a>
+          <div hidden>签到成功</div><div style="display:none">已签到</div>
           <template>已签到</template><noscript>已签到</noscript>
           <style>/* 签到成功 */</style>
           <script>
@@ -48,7 +49,9 @@ async function main() {
               const answer = prompt('签到验证：20 - 16 = ?');
               setTimeout(() => retryCheckin(), 50);
               await fetch('/checkin?answer=' + encodeURIComponent(answer));
-              location.reload();
+              alert('签到成功');
+              // Reload during the userscript's 500 ms return countdown.
+              setTimeout(() => location.reload(), 150);
             });
           </script>`;
       } else {

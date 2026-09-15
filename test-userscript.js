@@ -43,6 +43,7 @@ async function runScenario(url, {
   let now = 0;
   let nextTimer = 0;
   let clicks = 0;
+  let fetchCalls = 0;
   let retry;
   const body = element(bodyText);
   const button = buttonResult ? element() : null;
@@ -67,7 +68,8 @@ async function runScenario(url, {
     alert() {},
     confirm() { return true; },
     prompt() { return null; },
-    setTimeout: schedule
+    setTimeout: schedule,
+    clearTimeout(id) { timers.delete(id); }
   };
   if (button) {
     button.click = () => {
@@ -141,13 +143,18 @@ async function runScenario(url, {
     }
   }
   async function fetch() {
+    fetchCalls += 1;
     if (remoteState === 'network-error') throw new Error('offline');
+    if (remoteState === 'pending') return new Promise(() => {});
     return {
       ok: remoteState !== 'http-error',
       url: remoteState === 'login'
         ? 'https://sxsy18.com/member.php?mod=logging'
         : 'https://sxsy18.com/plugin.php?id=k_misign:sign',
-      async text() { return remoteText; }
+      async text() {
+        if (remoteState === 'text-pending') return new Promise(() => {});
+        return remoteText;
+      }
     };
   }
 
@@ -193,7 +200,7 @@ async function runScenario(url, {
   }
   assert.equal(timers.size, 0, 'scenario must not leave pending timers');
   assert.equal(pending.size, 0, 'scenario must wait for async runs to finish');
-  inspect({ logs, clicks, now, navigationTimes, storage });
+  inspect({ logs, clicks, now, navigationTimes, storage, fetchCalls });
   return navigations;
 }
 
@@ -208,6 +215,18 @@ async function main() {
   assert.deepEqual(await runScenario('https://sxsy18.com/', { remoteState: 'signed' }), []);
   assert.deepEqual(await runScenario('https://sxsy18.com/', { remoteState: 'unknown' }), []);
   assert.deepEqual(await runScenario('https://sxsy18.com/', { remoteState: 'login' }), []);
+  for (const remoteState of ['pending', 'text-pending']) {
+    assert.deepEqual(await runScenario('https://sxsy18.com/', {
+      remoteState,
+      retryAt: [13000],
+      inspect(result) {
+        assert.equal(result.fetchCalls, 1);
+        assert.equal(result.now, 13000);
+        assert.deepEqual(result.navigationTimes, [13000]);
+        assert.equal(result.logs.filter(line => line.includes('Background sign-in inspection timed out')).length, 1);
+      }
+    }), [signPage]);
+  }
   assert.deepEqual(await runScenario(`${signPage}&operation=qiandao&format=text`, { bodyText: '签到成功' }), ['https://sxsy18.com/']);
   assert.deepEqual(await runScenario(`${signPage}&operation=qiandao&format=text`, { bodyText: '验证码错误' }), []);
   assert.deepEqual(await runScenario(signPage, { bodyText: '您今天还没有签到', buttonResult: 'success' }), ['https://sxsy18.com/']);

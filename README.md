@@ -11,7 +11,8 @@ Tampermonkey userscript for 尚香书苑 / SXSY `k_misign` daily check-in. It op
 - Does not store daily check-in state. It keeps only a temporary same-tab return URL in `sessionStorage`, so different accounts are still decided independently by the website state.
 - Opens `plugin.php?id=k_misign:sign` only when the background response clearly shows an unsigned state; unknown or login responses stay on the current page.
 - Reads signed state only from the sign-in page or known check-in controls instead of scanning arbitrary forum content.
-- Removes scripts, styles, templates, and noscript content from background HTML before checking status, so unused success messages cannot mark an account as signed.
+- Removes scripts, styles, templates, noscript content, and explicitly hidden elements from background HTML before checking status, so unused success messages cannot mark an account as signed.
+- Applies a 12-second timeout to the background response and its body read; a stalled inspection leaves the page usable and releases the retry lock.
 - Clicks `#JD_sign` with `operation=qiandao&format=text` only when the sign-in page clearly shows an unsigned state.
 - Intercepts native `window.prompt()` at `document-start` and solves simple arithmetic prompts such as `8 - 3 = ?`.
 - Configurable post-check-in action: after the website confirms success, return to the page that started check-in after about 0.5 seconds by default, or stay on the sign-in page.
@@ -24,7 +25,8 @@ Tampermonkey userscript for 尚香书苑 / SXSY `k_misign` daily check-in. It op
 - 不保存本地「今日已簽」狀態；`sessionStorage` 只暫存同一分頁的返回網址，因此多帳號仍依各自網頁狀態判斷，不會互相誤擋。
 - 只有背景回應明確顯示未簽到，才前往 `plugin.php?id=k_misign:sign`；狀態不明或回到登入頁時會留在目前頁面。
 - 已簽到狀態只從簽到頁或已知簽到元件判斷，不掃描任意論壇文章內容。
-- 背景 HTML 判斷前會移除程式、樣式、樣板與 noscript 內容，避免未執行的成功訊息造成誤判。
+- 背景 HTML 判斷前會移除程式、樣式、樣板、noscript 與明確隱藏的元素，避免未執行或隱藏的成功訊息造成誤判。
+- 背景回應及內容讀取設有 12 秒逾時；檢查卡住時會留在目前頁面並釋放重試鎖定。
 - 只有簽到頁明確顯示未簽狀態時，才點擊 `#JD_sign` 上的 `operation=qiandao&format=text` 簽到連結。
 - 在 `document-start` 先攔截瀏覽器原生 `window.prompt()`，自動解出 `8 - 3 = ?` 這類算術驗證題。
 - 可設定簽到後動作：網站確認成功後，預設約 0.5 秒返回啟動簽到的前一頁，也可以改成留在簽到頁。
