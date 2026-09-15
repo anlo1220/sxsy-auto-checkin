@@ -19,6 +19,7 @@ Tampermonkey userscript for 尚香书苑 / SXSY `k_misign` daily check-in. It op
 - Provides a Tampermonkey menu command for manual retry.
 - Ignores overlapping retries while a check-in or return navigation is in progress. Failed attempts release the lock for another manual retry.
 - Manually opening an already-signed ranking page stays there. Automatic return applies to an active check-in flow.
+- Keeps the return URL until a top-level non-sign page actually loads. If the site's delayed reload cancels a slow return, the signed page resumes it without submitting check-in again.
 
 - 使用 `https://sxsy*.com/*` 匹配尚香书苑 / SXSY 鏡像網址。
 - 使用目前帳號的網站 session 在背景讀取簽到插件頁；若顯示 `已签到` / `已簽到` 或站方簽到排名畫面，目前頁面完全不會跳走。
@@ -33,6 +34,7 @@ Tampermonkey userscript for 尚香书苑 / SXSY `k_misign` daily check-in. It op
 - Tampermonkey 選單提供手動重試。
 - 簽到或返回過程中會忽略重複重試；失敗後可再次手動重試。
 - 手動開啟已簽到的排名頁會留在原頁；自動返回只適用於進行中的簽到流程。
+- 返回網址保留到最上層的一般頁面真正載入；站方延遲重新整理若打斷較慢的返回請求，已簽到頁可接續返回，不會再次提交簽到。
 
 ## Install / 安裝
 
@@ -49,6 +51,10 @@ Tampermonkey userscript for 尚香书苑 / SXSY `k_misign` daily check-in. It op
 4. 如果你原本有其他通用簽到腳本也會跑在尚香书苑 / SXSY，建議先停用，避免重複點擊或腳本衝突。
 
 ## Usage / 使用方式
+
+Existing installations: open the install link above, confirm **Update / Reinstall** in Tampermonkey, and verify version **1.5.5** before reloading the website. Updating GitHub alone does not confirm that your browser has installed the new version.
+
+已安裝者：開啟上方安裝連結，在油猴確認 **更新／重新安裝**，核對版本為 **1.5.5** 後重新整理網站。GitHub 更新完成不代表瀏覽器已經安裝新版。
 
 1. Log in to a 尚香书苑 / SXSY account manually first.
 2. Open the SXSY homepage, forum index, or portal index. Search, thread, profile, and other pages do not auto-start check-in.
@@ -94,3 +100,5 @@ The script does not decide from a saved local date, `localStorage`, or stored ch
 - Regression check: run `node test-userscript.js`.
 - Optional browser check: with Playwright and Chrome available, run `node test-browser.js`. All website requests are fulfilled locally; it does not use your signed-in browser or consume a daily check-in.
 - 可選瀏覽器測試：環境已有 Playwright 與 Chrome 時，執行 `node test-browser.js`。所有網站請求均在本機模擬，不使用登入中的瀏覽器，也不消耗每日簽到機會。
+- The browser regression includes the site's 900 ms reload while a return response is delayed by 1600 ms, verifies the first navigation is cancelled, then checks arrival at the original page and manual ranking navigation in the same tab.
+- 瀏覽器回歸包含站方 900 ms 重新整理與返回頁延遲 1600 ms 的競態，確認第一次導航確實被取消，再驗證成功返回原頁，以及同分頁手動開排名頁不被跳走。

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         尚香书苑 SXSY Auto Check-in
 // @namespace    https://sxsy*.com/
-// @version      1.5.4
+// @version      1.5.5
 // @description  尚香书苑 SXSY k_misign daily check-in userscript with already-signed detection and arithmetic prompt solving.
 // @author       anlo1220
 // @include      https://sxsy*.com/*
@@ -13,10 +13,13 @@
 // @grant        GM_notification
 // @grant        unsafeWindow
 // @run-at       document-start
+// @noframes
 // ==/UserScript==
 
 (function () {
   'use strict';
+
+  if (window.top !== window.self) return;
 
   const SITE_NAME = '尚香书苑';
   const SCRIPT = `${SITE_NAME} SXSY Auto Check-in`;
@@ -52,6 +55,13 @@
   let checkinAttempted = false;
   let running = false;
   let navigationPending = false;
+
+  // A return is complete only when a non-sign document actually loads.
+  if (!isSignPage()) {
+    const returnPage = readReturnPage();
+    clearReturnPage();
+    if (returnPage === location.href) log('Return page loaded.');
+  }
 
   installDialogHooks();
   registerMenuCommands();
@@ -333,9 +343,8 @@
     }
   }
 
-  function takeReturnPage() {
+  function resolveReturnPage() {
     const stored = readReturnPage();
-    clearReturnPage();
     for (const candidate of [stored, document.referrer]) {
       try {
         const url = new URL(candidate);
@@ -354,17 +363,18 @@
       log('Already checked in. Stay on the manually opened sign-in page.');
       return;
     }
-    const returnPage = storedReturnPage || takeReturnPage();
+    const returnPage = storedReturnPage || resolveReturnPage();
     if (!shouldReturnAfterSign()) {
       clearReturnPage();
       log('Return setting is off. Stay on the sign-in page after success.');
       return;
     }
 
+    rememberReturnPage(returnPage);
     navigationPending = true;
     window.setTimeout(() => {
-      clearReturnPage();
-      log(`${SITE_NAME}: returning to ${returnPage}`);
+      // The site's delayed reload can cancel this request before it commits.
+      log(`${SITE_NAME}: requesting return to ${returnPage}`);
       location.replace(returnPage);
     }, RETURN_AFTER_SIGN_DELAY_MS);
   }
@@ -462,7 +472,7 @@
     }
 
     log('Clicking #JD_sign. Browser prompt will be solved automatically.');
-    if (!readReturnPage()) rememberReturnPage(takeReturnPage());
+    if (!readReturnPage()) rememberReturnPage(resolveReturnPage());
     checkinAttempted = true;
     button.click();
     notify('SXSY check-in clicked.');

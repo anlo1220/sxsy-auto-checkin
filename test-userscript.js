@@ -29,6 +29,7 @@ async function runScenario(url, {
   retryAt = [],
   throwOnce = false,
   storageBlocked = false,
+  inFrame = false,
   storage = new Map(),
   inspect = () => {}
 } = {}) {
@@ -71,6 +72,8 @@ async function runScenario(url, {
     setTimeout: schedule,
     clearTimeout(id) { timers.delete(id); }
   };
+  window.self = window;
+  window.top = inFrame ? {} : window;
   if (button) {
     button.click = () => {
       clicks += 1;
@@ -186,6 +189,7 @@ async function runScenario(url, {
     GM_setValue() {}
   }, { filename: 'sxsy-auto-checkin.user.js' });
 
+  const storageAtStart = new Map(storage);
   for (const at of retryAt) schedule(() => retry(), at);
   // Advance real interval semantics and drain async work before accepting a result.
   for (let count = 0; count < 250; count += 1) {
@@ -200,7 +204,7 @@ async function runScenario(url, {
   }
   assert.equal(timers.size, 0, 'scenario must not leave pending timers');
   assert.equal(pending.size, 0, 'scenario must wait for async runs to finish');
-  inspect({ logs, clicks, now, navigationTimes, storage, fetchCalls });
+  inspect({ logs, clicks, now, navigationTimes, storage, storageAtStart, fetchCalls });
   return navigations;
 }
 
@@ -269,7 +273,7 @@ async function main() {
     inspect(result) {
       assert.equal(result.clicks, 1);
       assert.deepEqual(result.navigationTimes, [2700]);
-      assert.equal(result.storage.size, 0);
+      assert.equal(result.storage.get('sxsy:auto-checkin:return-page'), previousPage);
     }
   }), [previousPage]);
   assert.deepEqual(await runScenario(signPage, {
@@ -304,13 +308,48 @@ async function main() {
   assert.deepEqual(await runScenario(signPage, {
     storage: sharedStorage, bodyText: '您的签到排名：31641'
   }), ['https://sxsy18.com/index.php']);
-  assert.equal(sharedStorage.size, 0);
+  assert.equal(sharedStorage.get('sxsy:auto-checkin:return-page'), 'https://sxsy18.com/index.php');
+  // The first navigation can be cancelled by the site's delayed reload.
+  assert.deepEqual(await runScenario(signPage, {
+    storage: sharedStorage, bodyText: '您的签到排名：31641'
+  }), ['https://sxsy18.com/index.php']);
   assert.deepEqual(await runScenario('https://sxsy18.com/index.php', {
-    storage: sharedStorage, remoteState: 'signed'
+    storage: sharedStorage, remoteState: 'signed',
+    inspect(result) {
+      assert.equal(result.storageAtStart.size, 0);
+      assert(result.logs.some(line => line.includes('Return page loaded.')));
+    }
+  }), []);
+  assert.equal(sharedStorage.size, 0);
+  assert.deepEqual(await runScenario(signPage, {
+    storage: sharedStorage, bodyText: '您的签到排名：31641'
   }), []);
   assert.deepEqual(await runScenario('https://sxsy18.com/index.php', {
     storage: sharedStorage, remoteState: 'unsigned'
   }), [signPage]);
+
+  const fallbackStorage = new Map();
+  assert.deepEqual(await runScenario(`${signPage}&operation=qiandao&format=text`, {
+    bodyText: '签到成功', storage: fallbackStorage
+  }), ['https://sxsy18.com/']);
+  assert.deepEqual(await runScenario(signPage, {
+    bodyText: '已签到', storage: fallbackStorage
+  }), ['https://sxsy18.com/']);
+  assert.deepEqual(await runScenario(previousPage, {
+    returnPage: previousPage,
+    inspect(result) { assert.equal(result.storageAtStart.size, 0); }
+  }), []);
+  assert.deepEqual(await runScenario('https://sxsy18.com/', {
+    inFrame: true, returnPage: previousPage,
+    inspect(result) {
+      assert.equal(result.storage.get('sxsy:auto-checkin:return-page'), previousPage);
+      assert.equal(result.fetchCalls, 0);
+    }
+  }), []);
+  assert.deepEqual(await runScenario(signPage, {
+    inFrame: true, buttonResult: 'success',
+    inspect(result) { assert.equal(result.clicks, 0); }
+  }), []);
   console.log(`${scenarioCount} userscript regression scenarios passed`);
 }
 
