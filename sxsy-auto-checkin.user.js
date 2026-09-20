@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         尚香书苑 SXSY Auto Check-in
 // @namespace    https://sxsy*.com/
-// @version      1.5.5
+// @version      1.5.6
 // @description  尚香书苑 SXSY k_misign daily check-in userscript with already-signed detection and arithmetic prompt solving.
 // @author       anlo1220
 // @include      https://sxsy*.com/*
@@ -20,6 +20,9 @@
   'use strict';
 
   if (window.top !== window.self) return;
+  const pageWindow = typeof unsafeWindow === 'undefined' ? window : unsafeWindow;
+  if (pageWindow.__sxsyAutoCheckinStarted) return;
+  pageWindow.__sxsyAutoCheckinStarted = true;
 
   const SITE_NAME = '尚香书苑';
   const SCRIPT = `${SITE_NAME} SXSY Auto Check-in`;
@@ -30,8 +33,10 @@
   const RETURN_AFTER_SIGN_DELAY_MS = 500;
   const WAIT_TIMEOUT_MS = 12000;
   const REQUEST_TIMEOUT_MS = 12000;
-  const WAIT_INTERVAL_MS = 500;
+  const WAIT_INTERVAL_MS = 100;
   const SIGNED_PHRASES = [
+    '\u4eca\u65e5\u5df2\u7b7e',
+    '\u4eca\u65e5\u5df2\u7c3d',
     '\u5df2\u7b7e\u5230',
     '\u5df2\u7c3d\u5230',
     '\u4eca\u65e5\u5df2\u7b7e\u5230',
@@ -126,13 +131,13 @@
   }
 
   function installDialogHooks() {
-    const pageWindow = typeof unsafeWindow === 'undefined' ? window : unsafeWindow;
     if (pageWindow.__sxsyPromptSolverInstalled) return;
     pageWindow.__sxsyPromptSolverInstalled = true;
 
     const originalPrompt = pageWindow.prompt.bind(pageWindow);
     pageWindow.prompt = function sxsyPrompt(message, defaultValue) {
-      const answer = solveArithmeticPrompt(message);
+      const answer = isSignPage() && /签到|簽到/.test(String(message))
+        ? solveArithmeticPrompt(message) : null;
       if (answer !== null) {
         log(`Solved sign-in prompt: ${message} -> ${answer}`);
         return answer;
@@ -143,7 +148,11 @@
     const originalAlert = pageWindow.alert.bind(pageWindow);
     pageWindow.alert = function sxsyAlert(message) {
       const text = String(message || '');
-      if (SIGNED_PHRASES.some((phrase) => text.includes(phrase))) checkinConfirmed = true;
+      if (isSignPage() && checkinAttempted && SIGNED_PHRASES.some((phrase) => text.includes(phrase))) {
+        checkinConfirmed = true;
+        log('Check-in success alert received.');
+        return;
+      }
       return originalAlert(message);
     };
   }
@@ -186,6 +195,9 @@
 
   function elementShowsSignedState(element) {
     if (!element) return false;
+    if (element.ownerDocument === document && element.isConnected &&
+        (!element.getClientRects().length || window.getComputedStyle(element).visibility === 'hidden' ||
+          element.closest('[hidden], [aria-hidden="true"]'))) return false;
     const renderedText = typeof element.innerText === 'string'
       ? element.innerText
       : element.textContent;
@@ -201,8 +213,13 @@
   function documentShowsSignedState(doc) {
     if (elementShowsSignedState(doc.body)) return true;
     return Array.from(doc.querySelectorAll(
-      '#fx_checkin_b, #JD_sign, [alt*="签到"], [alt*="簽到"], [title*="签到"], [title*="簽到"], [aria-label*="签到"], [aria-label*="簽到"]'
+      '#k_misign_topb, #fx_checkin_b, #JD_sign, [alt*="签到"], [alt*="簽到"], [title*="签到"], [title*="簽到"], [aria-label*="签到"], [aria-label*="簽到"]'
     )).some(elementShowsSignedState);
+  }
+
+  function knownControlShowsSignedState() {
+    return Array.from(document.querySelectorAll('#k_misign_topb, #fx_checkin_b, #JD_sign'))
+      .some(elementShowsSignedState);
   }
 
   function pageShowsAlreadySigned() {
@@ -283,30 +300,36 @@
     return Boolean(document.querySelector('a[href*="operation=qiandao"], #fx_checkin_b[src*="mini.gif"]'));
   }
 
-  function waitForButton() {
+  function waitFor(check) {
     return new Promise((resolve) => {
+      const immediate = check();
+      if (immediate) { resolve(immediate); return; }
       const started = Date.now();
-      const timer = setInterval(() => {
-        const button = findSignPageButton();
-        if (button || Date.now() - started >= WAIT_TIMEOUT_MS) {
+      let observer;
+      const inspect = () => {
+        const result = check();
+        if (result || Date.now() - started >= WAIT_TIMEOUT_MS) {
           clearInterval(timer);
-          resolve(button);
+          if (observer) observer.disconnect();
+          resolve(result);
         }
-      }, WAIT_INTERVAL_MS);
+      };
+      // DOM changes resolve immediately; polling also catches native dialog hooks.
+      const timer = setInterval(inspect, WAIT_INTERVAL_MS);
+      if (typeof MutationObserver === 'function' && document.body) {
+        observer = new MutationObserver(inspect);
+        observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true });
+      }
     });
   }
 
+  async function waitForButton() {
+    await waitFor(() => findSignPageButton() || pageShowsAlreadySigned());
+    return findSignPageButton();
+  }
+
   function waitForSignedState() {
-    return new Promise((resolve) => {
-      const started = Date.now();
-      const timer = setInterval(() => {
-        const signed = pageShowsAlreadySigned();
-        if (signed || Date.now() - started >= WAIT_TIMEOUT_MS) {
-          clearInterval(timer);
-          resolve(signed);
-        }
-      }, WAIT_INTERVAL_MS);
-    });
+    return waitFor(pageShowsAlreadySigned);
   }
 
   function goToSignPage() {
@@ -421,6 +444,11 @@
         return;
       }
 
+      if (knownControlShowsSignedState()) {
+        skipClick(`${SITE_NAME}: current account's check-in control shows already checked in today.`);
+        return;
+      }
+
       if (force) {
         goToSignPage();
         return;
@@ -475,9 +503,8 @@
     if (!readReturnPage()) rememberReturnPage(resolveReturnPage());
     checkinAttempted = true;
     button.click();
-    notify('SXSY check-in clicked.');
     if (await waitForSignedState()) {
-      notify('SXSY check-in confirmed.');
+      notify('尚香书苑：簽到成功');
       returnAfterSign();
     } else {
       log('Check-in was clicked, but the page did not confirm success. Stay on the sign-in page.');
@@ -486,8 +513,8 @@
   }
 
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => window.setTimeout(() => run(false), 700), { once: true });
+    document.addEventListener('DOMContentLoaded', () => run(false), { once: true });
   } else {
-    window.setTimeout(() => run(false), 700);
+    run(false);
   }
 })();

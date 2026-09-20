@@ -10,11 +10,112 @@ const signPath = '/plugin.php?id=k_misign:sign';
 const initialization = `
   globalThis.GM_getValue = (_key, fallback) => fallback;
   globalThis.GM_setValue = () => {};
-  globalThis.GM_notification = () => {};
+  globalThis.GM_notification = ({ text }) => console.info('NOTIFICATION: ' + text);
   globalThis.GM_registerMenuCommand = (label, callback) => {
     if (label.includes('retry check-in now')) globalThis.retryCheckin = callback;
   };
 ` + source;
+
+async function testReportedFlow(browser, mode, returnEnabled = true) {
+  const context = await browser.newContext();
+  try {
+    let signed = false;
+    let submissions = 0;
+    let inspections = 0;
+    const messages = [];
+    const dialogs = [];
+    const errors = [];
+    await context.route('**/*', async route => {
+      const request = route.request();
+      const url = new URL(request.url());
+      assert.equal(url.origin, origin);
+      if (url.pathname === '/checkin') {
+        submissions += 1;
+        signed = true;
+        await route.fulfill({contentType: 'text/plain', body: 'ok'});
+        return;
+      }
+      let html = `<a id="k_misign_topb">${signed ? '今日已签' : '点击签到'}</a><p>帖子：已签到</p>`;
+      if (url.pathname === '/plugin.php') {
+        if (!request.isNavigationRequest()) inspections += 1;
+        html = signed ? '<a id="JD_sign">今日已签</a>' : `
+          <a id="k_misign_topb" style="display:none">今日已签</a>
+          <a id="JD_sign" href="${signPath}&operation=qiandao&format=text">签到</a>
+          <script>
+            let readyAt = performance.now();
+            document.addEventListener('DOMContentLoaded', () => { readyAt = performance.now(); });
+            document.querySelector('#JD_sign').addEventListener('click', async event => {
+              event.preventDefault();
+              console.info('CLICK_DELAY: ' + (performance.now() - readyAt));
+              await fetch('/checkin');
+              globalThis.confirmedAt = performance.now();
+              if (${JSON.stringify(mode)} === 'alert') alert('签到成功');
+              else {
+                const button = document.querySelector('#JD_sign');
+                button.removeAttribute('href');
+                button.textContent = ${JSON.stringify(mode)};
+              }
+              setTimeout(() => console.info('RETURN_ELAPSED: ' + (performance.now() - confirmedAt)), 480);
+            });
+          </script>`;
+      }
+      await route.fulfill({contentType: 'text/html; charset=utf-8', body: '<!doctype html><body>' + html});
+    });
+    // Reproduce two installed instances in the same document.
+    await context.addInitScript({content: initialization.replace(
+      '(_key, fallback) => fallback', `(_key, fallback) => ${returnEnabled}`
+    ) + '\n' + source});
+    const page = await context.newPage();
+    page.on('console', message => messages.push(message.text()));
+    page.on('pageerror', error => errors.push(error.message));
+    page.on('dialog', async dialog => { dialogs.push(dialog.message()); await dialog.dismiss(); });
+    const done = page.waitForEvent('console', {
+      predicate: message => message.text().includes(returnEnabled
+        ? "current account's check-in control shows already checked in today"
+        : 'Return setting is off'), timeout: 10000
+    });
+    await page.goto(origin + '/index.php');
+    await done;
+    assert.equal(page.url(), origin + (returnEnabled ? '/index.php' : signPath));
+    assert.equal(submissions, 1);
+    assert.equal(inspections, 1, 'signed home must not fetch the plugin again');
+    assert.equal(messages.filter(message => message.startsWith('NOTIFICATION:')).length, 1);
+    assert.deepEqual(dialogs, []);
+    assert.deepEqual(errors, []);
+    const clickDelay = Number(messages.find(message => message.startsWith('CLICK_DELAY:')).split(': ')[1]);
+    assert(clickDelay < 250, `ready button should be clicked without fixed waits: ${clickDelay}`);
+    if (returnEnabled) assert(messages.some(message => message.startsWith('RETURN_ELAPSED:')));
+    assert.equal(await page.evaluate(() => sessionStorage.getItem('sxsy:auto-checkin:return-page')), null);
+    console.log(`PASS: ${mode}, return=${returnEnabled}; one notification/submission, immediate click, hidden control ignored`);
+  } finally {
+    await context.close();
+  }
+}
+
+async function testUnrelatedDialogs(browser) {
+  const context = await browser.newContext();
+  try {
+    await context.route('**/*', route => route.fulfill({contentType: 'text/html; charset=utf-8', body: `
+      <!doctype html><body><p id="result"></p><script>
+        document.querySelector('#result').textContent = prompt('金額：8 - 3 = ?');
+        alert('已签到：文章內容');
+      </script>`}));
+    await context.addInitScript({content: initialization});
+    const page = await context.newPage();
+    const dialogs = [];
+    page.on('dialog', async dialog => {
+      dialogs.push(dialog.message());
+      if (dialog.type() === 'prompt') await dialog.accept('manual');
+      else await dialog.dismiss();
+    });
+    await page.goto(origin + '/search.php');
+    assert.equal(await page.locator('#result').innerText(), 'manual');
+    assert.equal(dialogs.length, 2);
+    console.log('PASS: unrelated arithmetic prompt and alert are preserved');
+  } finally {
+    await context.close();
+  }
+}
 
 async function testInterruptedReturn(browser) {
   const context = await browser.newContext();
@@ -88,6 +189,9 @@ async function testInterruptedReturn(browser) {
 async function main() {
   const browser = await chromium.launch({ channel: 'chrome', headless: true });
   try {
+    for (const mode of ['今日已签', '今日已簽', 'alert']) await testReportedFlow(browser, mode);
+    await testReportedFlow(browser, '今日已签', false);
+    await testUnrelatedDialogs(browser);
     await testInterruptedReturn(browser);
     const context = await browser.newContext();
     let signed = false;

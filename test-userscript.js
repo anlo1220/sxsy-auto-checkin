@@ -30,6 +30,8 @@ async function runScenario(url, {
   throwOnce = false,
   storageBlocked = false,
   inFrame = false,
+  duplicate = false,
+  topLabel = '',
   storage = new Map(),
   inspect = () => {}
 } = {}) {
@@ -38,6 +40,8 @@ async function runScenario(url, {
   const navigations = [];
   const navigationTimes = [];
   const logs = [];
+  const notifications = [];
+  const alerts = [];
   const timers = new Map();
   const pending = new Set();
   const errors = [];
@@ -66,7 +70,7 @@ async function runScenario(url, {
     static now() { return now; }
   }
   const window = {
-    alert() {},
+    alert(message) { alerts.push(message); },
     confirm() { return true; },
     prompt() { return null; },
     setTimeout: schedule,
@@ -81,6 +85,7 @@ async function runScenario(url, {
       const finish = () => {
         if (buttonResult === 'success') Object.assign(body, element('签到成功'));
         if (buttonResult === 'alert-success') window.alert('签到成功');
+        if (buttonResult === 'short-success') Object.assign(body, element('今日已签'));
       };
       if (successDelay) schedule(finish, successDelay);
       else finish();
@@ -96,7 +101,9 @@ async function runScenario(url, {
       if (selector === 'a[href*="operation=qiandao"], #fx_checkin_b[src*="mini.gif"]') return button;
       return null;
     },
-    querySelectorAll() { return []; }
+    querySelectorAll(selector) {
+      return topLabel && selector.includes('#k_misign_topb') ? [element(topLabel)] : [];
+    }
   };
   const location = {
     href: parsed.href,
@@ -161,7 +168,7 @@ async function runScenario(url, {
     };
   }
 
-  vm.runInNewContext(source, {
+  vm.runInNewContext(duplicate ? source + '\n' + source : source, {
     Array,
     Boolean,
     Date: ClockDate,
@@ -182,7 +189,7 @@ async function runScenario(url, {
     unsafeWindow: window,
     window,
     GM_getValue() { return returnEnabled; },
-    GM_notification() {},
+    GM_notification(value) { notifications.push(value.text); },
     GM_registerMenuCommand(label, callback) {
       if (label.includes('retry check-in now')) retry = callback;
     },
@@ -204,12 +211,47 @@ async function runScenario(url, {
   }
   assert.equal(timers.size, 0, 'scenario must not leave pending timers');
   assert.equal(pending.size, 0, 'scenario must wait for async runs to finish');
-  inspect({ logs, clicks, now, navigationTimes, storage, storageAtStart, fetchCalls });
+  inspect({ logs, clicks, now, navigationTimes, storage, storageAtStart, fetchCalls, notifications, alerts });
   return navigations;
 }
 
 async function main() {
   const signPage = 'https://sxsy18.com/plugin.php?id=k_misign:sign';
+  {
+    const failures = [];
+    const cases = [
+      ['short signed label returns', () => runScenario(signPage, {
+        bodyText: '您今天还没有签到', buttonResult: 'short-success',
+        returnPage: 'https://sxsy18.com/index.php',
+        inspect(result) {
+          assert.deepEqual(result.navigationTimes, [500]);
+          assert.equal(result.notifications.length, 1);
+        }
+      })],
+      ['one nonblocking success message', () => runScenario(signPage, {
+        buttonResult: 'alert-success',
+        inspect(result) {
+          assert.equal(result.alerts.length, 0, 'success alert must not block return');
+          assert.equal(result.notifications.length, 1);
+          assert.deepEqual(result.navigationTimes, [500]);
+        }
+      })],
+      ['duplicate execution submits once', () => runScenario(signPage, {
+        buttonResult: 'success', successDelay: 1000, duplicate: true,
+        inspect(result) { assert.equal(result.clicks, 1); }
+      })],
+      ['fresh homepage signed control avoids another request', () => runScenario('https://sxsy18.com/index.php', {
+        topLabel: '今日已签',
+        inspect(result) { assert.equal(result.fetchCalls, 0); }
+      })]
+    ];
+    for (const [name, test] of cases) {
+      try { await test(); console.log('PASS:', name); }
+      catch (error) { failures.push(name); console.error('FAIL:', name, error.message); }
+    }
+    assert.deepEqual(failures, []);
+    if (process.argv.includes('--reported-bugs')) return;
+  }
   assert.deepEqual(await runScenario('https://sxsy18.com/'), [signPage]);
   assert.deepEqual(await runScenario('https://sxsy18.com/forum.php'), [signPage]);
   assert.deepEqual(await runScenario('https://sxsy18.com/search.php?mod=forum'), []);
@@ -237,7 +279,7 @@ async function main() {
   assert.deepEqual(await runScenario(signPage, {
     bodyText: '您今天还没有签到', buttonResult: 'failure',
     inspect(result) {
-      assert.equal(result.now, 13200);
+      assert.equal(result.now, 12000);
       assert(result.logs.some(line => line.includes('Check-in was clicked, but the page did not confirm success')));
       assert.equal(result.storage.size, 0);
     }
@@ -272,7 +314,7 @@ async function main() {
     returnPage: previousPage, retryAt: [800, 1300, 2400],
     inspect(result) {
       assert.equal(result.clicks, 1);
-      assert.deepEqual(result.navigationTimes, [2700]);
+      assert.deepEqual(result.navigationTimes, [1500]);
       assert.equal(result.storage.get('sxsy:auto-checkin:return-page'), previousPage);
     }
   }), [previousPage]);
@@ -292,7 +334,7 @@ async function main() {
   }), ['https://sxsy18.com/']);
   assert.deepEqual(await runScenario(signPage, {
     inspect(result) {
-      assert.equal(result.now, 12700);
+      assert.equal(result.now, 12000);
       assert(result.logs.some(line => line.includes('No check-in link found')));
     }
   }), []);

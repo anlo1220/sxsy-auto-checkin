@@ -7,7 +7,7 @@ Tampermonkey userscript for 尚香书苑 / SXSY `k_misign` daily check-in. It op
 ## Features / 功能
 
 - Matches SXSY mirror domains with `https://sxsy*.com/*`.
-- Fetches the sign-in plugin page in the background with the current account session; signed text or the site's signed-in ranking view keeps the current page from navigating away.
+- Checks visible, known check-in controls in the freshly loaded page first. If they do not confirm success, fetches the plugin page with the current account session; signed text or the site's signed-in ranking view keeps the current page from navigating away.
 - Does not store daily check-in state. It keeps only a temporary same-tab return URL in `sessionStorage`, so different accounts are still decided independently by the website state.
 - Opens `plugin.php?id=k_misign:sign` only when the background response clearly shows an unsigned state; unknown or login responses stay on the current page.
 - Reads signed state only from the sign-in page or known check-in controls instead of scanning arbitrary forum content.
@@ -20,9 +20,13 @@ Tampermonkey userscript for 尚香书苑 / SXSY `k_misign` daily check-in. It op
 - Ignores overlapping retries while a check-in or return navigation is in progress. Failed attempts release the lock for another manual retry.
 - Manually opening an already-signed ranking page stays there. Automatic return applies to an active check-in flow.
 - Keeps the return URL until a top-level non-sign page actually loads. If the site's delayed reload cancels a slow return, the signed page resumes it without submitting check-in again.
+- Recognizes the site's short labels `今日已签` / `今日已簽` as well as full signed labels and ranking responses.
+- Starts when the DOM is ready and reacts to changes immediately, without fixed startup/button waits; the post-success return delay remains 0.5 seconds.
+- Sends one Windows/Tampermonkey notification after confirmed success. The redundant "clicked" notification is removed; success alerts from this automatic check-in are handled without blocking navigation. Errors and unrelated dialogs remain visible.
+- Prevents duplicate instances of version 1.5.6 or later from running in the same page.
 
 - 使用 `https://sxsy*.com/*` 匹配尚香书苑 / SXSY 鏡像網址。
-- 使用目前帳號的網站 session 在背景讀取簽到插件頁；若顯示 `已签到` / `已簽到` 或站方簽到排名畫面，目前頁面完全不會跳走。
+- 優先檢查本次載入頁面中可見的已知簽到元件；未能確認已簽時，再使用目前帳號的 session 背景讀取簽到插件頁。若顯示已簽或站方簽到排名畫面，目前頁面不會跳走。
 - 不保存本地「今日已簽」狀態；`sessionStorage` 只暫存同一分頁的返回網址，因此多帳號仍依各自網頁狀態判斷，不會互相誤擋。
 - 只有背景回應明確顯示未簽到，才前往 `plugin.php?id=k_misign:sign`；狀態不明或回到登入頁時會留在目前頁面。
 - 已簽到狀態只從簽到頁或已知簽到元件判斷，不掃描任意論壇文章內容。
@@ -35,6 +39,10 @@ Tampermonkey userscript for 尚香书苑 / SXSY `k_misign` daily check-in. It op
 - 簽到或返回過程中會忽略重複重試；失敗後可再次手動重試。
 - 手動開啟已簽到的排名頁會留在原頁；自動返回只適用於進行中的簽到流程。
 - 返回網址保留到最上層的一般頁面真正載入；站方延遲重新整理若打斷較慢的返回請求，已簽到頁可接續返回，不會再次提交簽到。
+- 支援站方短版文字 `今日已签` / `今日已簽`，以及完整已簽文字與排名畫面。
+- DOM 就緒後立即開始、狀態變動即處理，移除啟動與等待按鈕的固定延遲；確認成功後仍依設定約 0.5 秒返回。
+- 成功確認後只發一次 Windows／油猴通知，移除「已點擊」通知；自動簽到的成功彈窗不阻塞返回，錯誤與其他用途的對話框仍正常顯示。
+- 同一頁重複載入 1.5.6 以上版本時，只允許一份執行。
 
 ## Install / 安裝
 
@@ -52,13 +60,13 @@ Tampermonkey userscript for 尚香书苑 / SXSY `k_misign` daily check-in. It op
 
 ## Usage / 使用方式
 
-Existing installations: open the install link above, confirm **Update / Reinstall** in Tampermonkey, and verify version **1.5.5** before reloading the website. Updating GitHub alone does not confirm that your browser has installed the new version.
+Existing installations: open the install link above, confirm **Update / Reinstall** in Tampermonkey, and verify version **1.5.6** before reloading the website. Updating GitHub alone does not confirm that your browser has installed the new version.
 
-已安裝者：開啟上方安裝連結，在油猴確認 **更新／重新安裝**，核對版本為 **1.5.5** 後重新整理網站。GitHub 更新完成不代表瀏覽器已經安裝新版。
+已安裝者：開啟上方安裝連結，在油猴確認 **更新／重新安裝**，核對版本為 **1.5.6** 後重新整理網站。GitHub 更新完成不代表瀏覽器已經安裝新版。
 
 1. Log in to a 尚香书苑 / SXSY account manually first.
 2. Open the SXSY homepage, forum index, or portal index. Search, thread, profile, and other pages do not auto-start check-in.
-3. The script fetches the sign-in plugin page in the background using the current account cookies.
+3. The script checks the current page's known check-in controls, then fetches the plugin page in the background using the current account cookies if needed.
 4. If the response is already signed, the browser stays on the current page. Only a clearly unsigned response opens the visible sign-in page.
 5. The site may show a browser prompt like `签到验证：8 - 3 = ?`. The script answers it automatically.
 6. The script waits for `签到成功` / `已签到`, a success alert, or the site's signed-in ranking view. Only then does the default 0.5-second return countdown begin; failed or unconfirmed responses stay visible.
@@ -67,7 +75,7 @@ Existing installations: open the install link above, confirm **Update / Reinstal
 
 1. 先手動登入尚香书苑 / SXSY 帳號。
 2. 打開 SXSY 網站首頁、論壇首頁或門戶首頁。搜尋、文章、個人頁及其他頁面不會自動啟動簽到。
-3. 腳本會使用目前帳號 Cookie，在背景取得簽到插件頁並判斷狀態。
+3. 腳本先檢查當前頁面中已知的簽到元件；必要時使用目前帳號 Cookie，在背景取得簽到插件頁並判斷狀態。
 4. 如果背景回應已簽到，瀏覽器會留在目前頁面；只有明確未簽到才開啟可見的簽到頁。
 5. 網站可能會跳出瀏覽器原生提示框，例如 `签到验证：8 - 3 = ?`。腳本會自動回傳答案。
 6. 腳本會等待網站顯示 `签到成功` / `已签到`、成功彈窗或已簽到後的排名畫面；確認後才開始預設 0.5 秒返回前一頁倒數，失敗或未確認的結果會留在畫面上。
@@ -76,9 +84,9 @@ Existing installations: open the install link above, confirm **Update / Reinstal
 
 ## Multi-account Behavior / 多帳號行為
 
-The script does not decide from a saved local date, `localStorage`, or stored check-in state. It fetches the website's sign-in page every time and lets the current account response decide whether to navigate and click. This is important when different accounts are used in the same browser profile.
+The script does not decide from a saved local date, `localStorage`, or stored check-in state. It reads the freshly loaded account controls or fetches the website's sign-in page, and lets the current account response decide whether to navigate and click. This is important when different accounts are used in the same browser profile.
 
-腳本不會用本地日期、`localStorage` 或儲存的簽到狀態判斷是否已簽，而是每次背景取得網站簽到頁，再依目前帳號的回應決定是否跳轉與點擊。這樣同一個瀏覽器 profile 切換不同帳號時，不會因為前一個帳號簽過就誤擋另一個帳號。
+腳本不會用本地日期、`localStorage` 或儲存的簽到狀態判斷是否已簽，而是讀取本次載入的帳號簽到元件，或在背景取得簽到頁，再依目前帳號的回應決定是否跳轉與點擊。這樣同一個瀏覽器 profile 切換不同帳號時，不會因為前一個帳號簽過就誤擋另一個帳號。
 
 ## Notes / 注意事項
 
@@ -102,3 +110,5 @@ The script does not decide from a saved local date, `localStorage`, or stored ch
 - 可選瀏覽器測試：環境已有 Playwright 與 Chrome 時，執行 `node test-browser.js`。所有網站請求均在本機模擬，不使用登入中的瀏覽器，也不消耗每日簽到機會。
 - The browser regression includes the site's 900 ms reload while a return response is delayed by 1600 ms, verifies the first navigation is cancelled, then checks arrival at the original page and manual ranking navigation in the same tab.
 - 瀏覽器回歸包含站方 900 ms 重新整理與返回頁延遲 1600 ms 的競態，確認第一次導航確實被取消，再驗證成功返回原頁，以及同分頁手動開排名頁不被跳走。
+- Additional browser cases verify short signed labels, one notification, duplicate instances, immediate button handling, hidden controls, disabled return, and unrelated dialogs.
+- 新增瀏覽器案例涵蓋短版已簽文字、單次通知、重複載入、立即點擊、隱藏元件、關閉返回與無關對話框。
