@@ -10,9 +10,10 @@ Tampermonkey userscript for 尚香书苑 / SXSY `k_misign` daily check-in. It op
 - Checks visible, known check-in controls in the freshly loaded page first. If they do not confirm success, fetches the plugin page with the current account session; signed text or the site's signed-in ranking view keeps the current page from navigating away.
 - Does not store daily check-in state. It keeps only a temporary same-tab return URL in `sessionStorage`, so different accounts are still decided independently by the website state.
 - Opens `plugin.php?id=k_misign:sign` only when the background response clearly shows an unsigned state; unknown or login responses stay on the current page.
-- Reads signed state only from the sign-in page or known check-in controls instead of scanning arbitrary forum content.
+- Reads signed state only from known check-in controls, the success tip, or a complete personal ranking label (`您的签到排名：number`). Arbitrary signed text in posts, titles, or another person's ranking is ignored; raw text is accepted only on the check-in action response page.
 - Removes scripts, styles, templates, noscript content, and explicitly hidden elements from background HTML before checking status, so unused success messages cannot mark an account as signed.
 - Applies a 12-second timeout to the background response and its body read; a stalled inspection leaves the page usable and releases the retry lock.
+- If a submitted check-in is not confirmed within 12 seconds, performs one read-only status recheck with a 4-second limit. Keeps the return destination during that recheck, returns after confirmed success, and never automatically resubmits an uncertain attempt.
 - Clicks `#JD_sign` with `operation=qiandao&format=text` only when the sign-in page clearly shows an unsigned state.
 - Intercepts native `window.prompt()` at `document-start` and solves simple arithmetic prompts such as `8 - 3 = ?`.
 - Configurable post-check-in action: after the website confirms success, return to the page that started check-in after about 0.5 seconds by default, or stay on the sign-in page.
@@ -22,16 +23,18 @@ Tampermonkey userscript for 尚香书苑 / SXSY `k_misign` daily check-in. It op
 - Keeps the return URL until a top-level non-sign page actually loads. If the site's delayed reload cancels a slow return, the signed page resumes it without submitting check-in again.
 - Recognizes the site's short labels `今日已签` / `今日已簽` as well as full signed labels and ranking responses.
 - Starts when the DOM is ready and reacts to changes immediately, without fixed startup/button waits; the post-success return delay remains 0.5 seconds.
+- Watches check-in controls and their containers instead of the whole page once controls exist. Native success alerts wake the wait immediately; one-second fallback polling covers replaced controls (previously every 100 ms).
 - Sends one Windows/Tampermonkey notification after confirmed success. The redundant "clicked" notification is removed; success alerts from this automatic check-in are handled without blocking navigation. Errors and unrelated dialogs remain visible.
-- Prevents duplicate instances of version 1.5.6 or later from running in the same page.
+- Prevents duplicate instances of version 1.5.7 or later from running in the same page.
 
 - 使用 `https://sxsy*.com/*` 匹配尚香书苑 / SXSY 鏡像網址。
 - 優先檢查本次載入頁面中可見的已知簽到元件；未能確認已簽時，再使用目前帳號的 session 背景讀取簽到插件頁。若顯示已簽或站方簽到排名畫面，目前頁面不會跳走。
 - 不保存本地「今日已簽」狀態；`sessionStorage` 只暫存同一分頁的返回網址，因此多帳號仍依各自網頁狀態判斷，不會互相誤擋。
 - 只有背景回應明確顯示未簽到，才前往 `plugin.php?id=k_misign:sign`；狀態不明或回到登入頁時會留在目前頁面。
-- 已簽到狀態只從簽到頁或已知簽到元件判斷，不掃描任意論壇文章內容。
+- 已簽到狀態只從已知簽到元件、成功提示或完整的個人排名標籤（`您的签到排名：數字`）判斷；文章、標題或他人的已簽文字不算。只有簽到操作回應頁接受原始成功文字。
 - 背景 HTML 判斷前會移除程式、樣式、樣板、noscript 與明確隱藏的元素，避免未執行或隱藏的成功訊息造成誤判。
 - 背景回應及內容讀取設有 12 秒逾時；檢查卡住時會留在目前頁面並釋放重試鎖定。
+- 提交簽到後若 12 秒內未確認，追加一次最多 4 秒的唯讀狀態複查；期間保留返回來源，確認已簽後才返回，不會自動重送結果不明的簽到。
 - 只有簽到頁明確顯示未簽狀態時，才點擊 `#JD_sign` 上的 `operation=qiandao&format=text` 簽到連結。
 - 在 `document-start` 先攔截瀏覽器原生 `window.prompt()`，自動解出 `8 - 3 = ?` 這類算術驗證題。
 - 可設定簽到後動作：網站確認成功後，預設約 0.5 秒返回啟動簽到的前一頁，也可以改成留在簽到頁。
@@ -41,8 +44,9 @@ Tampermonkey userscript for 尚香书苑 / SXSY `k_misign` daily check-in. It op
 - 返回網址保留到最上層的一般頁面真正載入；站方延遲重新整理若打斷較慢的返回請求，已簽到頁可接續返回，不會再次提交簽到。
 - 支援站方短版文字 `今日已签` / `今日已簽`，以及完整已簽文字與排名畫面。
 - DOM 就緒後立即開始、狀態變動即處理，移除啟動與等待按鈕的固定延遲；確認成功後仍依設定約 0.5 秒返回。
+- 找到簽到元件後，只監看元件及其容器，不監看整頁文章；原生成功彈窗會立即喚醒等待，控制項被替換時由每秒一次的備援輪詢捕捉（原為每 100 ms）。
 - 成功確認後只發一次 Windows／油猴通知，移除「已點擊」通知；自動簽到的成功彈窗不阻塞返回，錯誤與其他用途的對話框仍正常顯示。
-- 同一頁重複載入 1.5.6 以上版本時，只允許一份執行。
+- 同一頁重複載入 1.5.7 以上版本時，只允許一份執行。
 
 ## Install / 安裝
 
@@ -60,16 +64,16 @@ Tampermonkey userscript for 尚香书苑 / SXSY `k_misign` daily check-in. It op
 
 ## Usage / 使用方式
 
-Existing installations: open the install link above, confirm **Update / Reinstall** in Tampermonkey, and verify version **1.5.6** before reloading the website. Updating GitHub alone does not confirm that your browser has installed the new version.
+Existing installations: open the install link above, confirm **Update / Reinstall** in Tampermonkey, and verify version **1.5.7** before reloading the website. Updating GitHub alone does not confirm that your browser has installed the new version.
 
-已安裝者：開啟上方安裝連結，在油猴確認 **更新／重新安裝**，核對版本為 **1.5.6** 後重新整理網站。GitHub 更新完成不代表瀏覽器已經安裝新版。
+已安裝者：開啟上方安裝連結，在油猴確認 **更新／重新安裝**，核對版本為 **1.5.7** 後重新整理網站。GitHub 更新完成不代表瀏覽器已經安裝新版。
 
 1. Log in to a 尚香书苑 / SXSY account manually first.
 2. Open the SXSY homepage, forum index, or portal index. Search, thread, profile, and other pages do not auto-start check-in.
 3. The script checks the current page's known check-in controls, then fetches the plugin page in the background using the current account cookies if needed.
 4. If the response is already signed, the browser stays on the current page. Only a clearly unsigned response opens the visible sign-in page.
 5. The site may show a browser prompt like `签到验证：8 - 3 = ?`. The script answers it automatically.
-6. The script waits for `签到成功` / `已签到`, a success alert, or the site's signed-in ranking view. Only then does the default 0.5-second return countdown begin; failed or unconfirmed responses stay visible.
+6. The script waits for `签到成功` / `已签到` in check-in controls, a success alert, or the personal ranking label. If confirmation takes longer than 12 seconds, it rechecks once without clicking again. Only confirmed success starts the default 0.5-second return countdown; failed or still-unknown results stay visible and allow manual retry.
 7. To change that behavior, open Tampermonkey's menu and run **尚香书苑 SXSY: 簽到後返回前一頁 / 留在簽到頁**.
 8. If you need to retry, open Tampermonkey's menu and run **尚香书苑 SXSY: retry check-in now**.
 
@@ -78,7 +82,7 @@ Existing installations: open the install link above, confirm **Update / Reinstal
 3. 腳本先檢查當前頁面中已知的簽到元件；必要時使用目前帳號 Cookie，在背景取得簽到插件頁並判斷狀態。
 4. 如果背景回應已簽到，瀏覽器會留在目前頁面；只有明確未簽到才開啟可見的簽到頁。
 5. 網站可能會跳出瀏覽器原生提示框，例如 `签到验证：8 - 3 = ?`。腳本會自動回傳答案。
-6. 腳本會等待網站顯示 `签到成功` / `已签到`、成功彈窗或已簽到後的排名畫面；確認後才開始預設 0.5 秒返回前一頁倒數，失敗或未確認的結果會留在畫面上。
+6. 腳本會等待簽到元件顯示 `签到成功` / `已签到`、成功彈窗或個人排名標籤；超過 12 秒未確認時只複查一次，不會再點擊。確認後才開始預設 0.5 秒返回倒數，失敗或仍不明的結果會留在畫面上，可手動重試。
 7. 如果要改成留在簽到頁，可從 Tampermonkey 選單執行 **尚香书苑 SXSY: 簽到後返回前一頁 / 留在簽到頁**。
 8. 如果要重新嘗試，可從 Tampermonkey 選單執行 **尚香书苑 SXSY: retry check-in now**。
 
@@ -112,3 +116,5 @@ The script does not decide from a saved local date, `localStorage`, or stored ch
 - 瀏覽器回歸包含站方 900 ms 重新整理與返回頁延遲 1600 ms 的競態，確認第一次導航確實被取消，再驗證成功返回原頁，以及同分頁手動開排名頁不被跳走。
 - Additional browser cases verify short signed labels, one notification, duplicate instances, immediate button handling, hidden controls, disabled return, and unrelated dialogs.
 - 新增瀏覽器案例涵蓋短版已簽文字、單次通知、重複載入、立即點擊、隱藏元件、關閉返回與無關對話框。
+- Version 1.5.7 cases also verify unrelated visible signed text, scoped observers under article mutations, personal ranking layouts, successful timeout recovery, and stalled recheck cleanup without duplicate submissions.
+- 1.5.7 回歸另涵蓋可見的無關已簽文字、文章變更不觸發簽到監看、個人排名格式、逾時後成功返回，以及複查卡住時有界結束且不重複提交。

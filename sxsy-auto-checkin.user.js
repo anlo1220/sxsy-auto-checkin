@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         尚香书苑 SXSY Auto Check-in
 // @namespace    https://sxsy*.com/
-// @version      1.5.6
+// @version      1.5.7
 // @description  尚香书苑 SXSY k_misign daily check-in userscript with already-signed detection and arithmetic prompt solving.
 // @author       anlo1220
 // @include      https://sxsy*.com/*
@@ -33,7 +33,9 @@
   const RETURN_AFTER_SIGN_DELAY_MS = 500;
   const WAIT_TIMEOUT_MS = 12000;
   const REQUEST_TIMEOUT_MS = 12000;
-  const WAIT_INTERVAL_MS = 100;
+  const RECHECK_TIMEOUT_MS = 4000;
+  const WAIT_INTERVAL_MS = 1000;
+  const STATUS_CONTROLS = '#k_misign_topb, #fx_checkin_b, #JD_sign, #k_misign_sign_tip';
   const SIGNED_PHRASES = [
     '\u4eca\u65e5\u5df2\u7b7e',
     '\u4eca\u65e5\u5df2\u7c3d',
@@ -60,6 +62,7 @@
   let checkinAttempted = false;
   let running = false;
   let navigationPending = false;
+  let signedStateListener;
 
   // A return is complete only when a non-sign document actually loads.
   if (!isSignPage()) {
@@ -151,6 +154,7 @@
       if (isSignPage() && checkinAttempted && SIGNED_PHRASES.some((phrase) => text.includes(phrase))) {
         checkinConfirmed = true;
         log('Check-in success alert received.');
+        if (signedStateListener) signedStateListener();
         return;
       }
       return originalAlert(message);
@@ -193,11 +197,16 @@
     return document.body ? document.body.innerHTML : '';
   }
 
-  function elementShowsSignedState(element) {
+  function elementIsVisible(element) {
     if (!element) return false;
     if (element.ownerDocument === document && element.isConnected &&
         (!element.getClientRects().length || window.getComputedStyle(element).visibility === 'hidden' ||
           element.closest('[hidden], [aria-hidden="true"]'))) return false;
+    return true;
+  }
+
+  function elementShowsSignedState(element) {
+    if (!elementIsVisible(element)) return false;
     const renderedText = typeof element.innerText === 'string'
       ? element.innerText
       : element.textContent;
@@ -211,10 +220,16 @@
   }
 
   function documentShowsSignedState(doc) {
-    if (elementShowsSignedState(doc.body)) return true;
-    return Array.from(doc.querySelectorAll(
-      '#k_misign_topb, #fx_checkin_b, #JD_sign, [alt*="签到"], [alt*="簽到"], [title*="签到"], [title*="簽到"], [aria-label*="签到"], [aria-label*="簽到"]'
-    )).some(elementShowsSignedState);
+    if (Array.from(doc.querySelectorAll(STATUS_CONTROLS)).some(elementShowsSignedState)) return true;
+    if (doc.querySelector('#JD_sign[href*="operation=qiandao"][href*="format=text"]')) return false;
+    // The signed ranking view has no action link; accept only its complete personal label.
+    const personalRank = /^\s*您的[签簽]到排名\s*[:：]\s*\d+\s*$/;
+    return [doc.body, ...doc.querySelectorAll('p, div, span, li, td, th, strong')].some((element) =>
+      elementIsVisible(element) && (
+        (element !== doc.body && personalRank.test(element.textContent || '')) ||
+        Array.from(element.childNodes || []).some((node) => node.nodeType === 3 && personalRank.test(node.textContent))
+      )
+    );
   }
 
   function knownControlShowsSignedState() {
@@ -224,6 +239,7 @@
 
   function pageShowsAlreadySigned() {
     if (checkinConfirmed) return true;
+    if (isCheckinActionPage()) return elementShowsSignedState(document.body);
     return documentShowsSignedState(document);
   }
 
@@ -232,23 +248,24 @@
       .forEach((node) => node.remove());
     doc.querySelectorAll('[style]').forEach((node) => {
       const style = node.getAttribute('style') || '';
-      if (/(^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden)\s*(?:;|$)/i.test(style)) {
+      if (/(^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden)\s*(?:!important\s*)?(?:;|$)/i.test(style)) {
         node.remove();
       }
     });
   }
 
   function documentShowsNotSigned(doc) {
-    const text = doc.body ? doc.body.innerText || doc.body.textContent || '' : '';
-    return UNSIGNED_PHRASES.some((phrase) => text.includes(phrase)) ||
-      Boolean(doc.querySelector('#JD_sign[href*="operation=qiandao"][href*="format=text"]'));
+    return Boolean(doc.querySelector('#JD_sign[href*="operation=qiandao"][href*="format=text"]')) ||
+      Array.from(doc.querySelectorAll(STATUS_CONTROLS)).some((element) => elementIsVisible(element) &&
+        UNSIGNED_PHRASES.some((phrase) => (element.textContent || '').includes(phrase))
+      );
   }
 
   function pageShowsNotSigned() {
     return documentShowsNotSigned(document);
   }
 
-  async function fetchSignPageState() {
+  async function fetchSignPageState(timeoutMs = REQUEST_TIMEOUT_MS) {
     let timeoutId;
     let controller;
     try {
@@ -265,7 +282,7 @@
         timeoutId = window.setTimeout(() => {
           if (controller) controller.abort();
           reject(new Error('Sign-in page inspection timed out.'));
-        }, REQUEST_TIMEOUT_MS);
+        }, timeoutMs);
       });
       const response = await Promise.race([request, timeout]);
       if (!response.ok) return 'unknown';
@@ -311,14 +328,26 @@
         if (result || Date.now() - started >= WAIT_TIMEOUT_MS) {
           clearInterval(timer);
           if (observer) observer.disconnect();
+          signedStateListener = undefined;
           resolve(result);
         }
       };
-      // DOM changes resolve immediately; polling also catches native dialog hooks.
+      signedStateListener = inspect;
+      // Observe check-in controls, not unrelated forum content. Slow polling covers replacements.
       const timer = setInterval(inspect, WAIT_INTERVAL_MS);
       if (typeof MutationObserver === 'function' && document.body) {
         observer = new MutationObserver(inspect);
-        observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true });
+        const targets = new Set(Array.from(document.querySelectorAll(STATUS_CONTROLS)).map((element) =>
+          element.parentElement && element.parentElement !== document.body ? element.parentElement : element
+        ));
+        if (targets.size) {
+          targets.forEach((target) => observer.observe(target, {
+            childList: true, subtree: true, characterData: true, attributes: true
+          }));
+        } else {
+          // Bootstrap only while the plugin has not inserted its controls yet.
+          observer.observe(document.body, { childList: true, subtree: true });
+        }
       }
     });
   }
@@ -503,7 +532,14 @@
     if (!readReturnPage()) rememberReturnPage(resolveReturnPage());
     checkinAttempted = true;
     button.click();
-    if (await waitForSignedState()) {
+    let signed = await waitForSignedState();
+    if (!signed) {
+      log('Confirmation timed out. Rechecking current account state once without submitting again.');
+      const state = await fetchSignPageState(RECHECK_TIMEOUT_MS);
+      signed = state === 'signed' || pageShowsAlreadySigned();
+    }
+    if (signed) {
+      checkinConfirmed = true;
       notify('尚香书苑：簽到成功');
       returnAfterSign();
     } else {

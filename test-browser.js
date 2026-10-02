@@ -186,6 +186,179 @@ async function testInterruptedReturn(browser) {
   }
 }
 
+async function testRestrictedStatusAndObserver(browser) {
+  const context = await browser.newContext();
+  try {
+    let signed = false;
+    let submissions = 0;
+    await context.route('**/*', async route => {
+      const url = new URL(route.request().url());
+      assert.equal(url.origin, origin);
+      if (url.pathname === '/checkin') {
+        submissions++;
+        signed = true;
+        await route.fulfill({contentType: 'text/plain', body: 'ok'});
+        return;
+      }
+      const html = url.pathname !== '/plugin.php' ? `<a id="k_misign_topb">${signed ? '今日已签' : '签到'}</a>` : `
+        <a id="k_misign_topb" style="display:none !important">今日已签</a>
+        <section id="checkin"><a id="JD_sign" href="${signPath}&operation=qiandao&format=text">签到</a>
+          <div id="k_misign_sign_tip"></div></section>
+        <article id="posts"><p>帖子：已签到；别人的签到成功</p><span title="已签到">文章</span></article>
+        <script>
+          Object.defineProperty(document.body, 'innerText', {get() {throw new Error('whole-body status scan');}});
+          document.querySelector('#JD_sign').addEventListener('click', async event => {
+            event.preventDefault();
+            await fetch('/checkin');
+            let count = 0;
+            const timer = setInterval(() => {
+              document.querySelector('#posts').append(document.createElement('p'));
+              if (++count === 20) clearInterval(timer);
+            }, 10);
+            setTimeout(() => {document.querySelector('#k_misign_sign_tip').textContent = '签到成功';}, 250);
+            setTimeout(() => console.info('MONITOR: ' + JSON.stringify({targets: observedTargets, deliveries: observerDeliveries})), 350);
+          });
+        </script>`;
+      await route.fulfill({contentType: 'text/html; charset=utf-8', body: '<!doctype html><body>' + html});
+    });
+    await context.addInitScript({content: `
+      globalThis.observedTargets = [];
+      globalThis.observerDeliveries = 0;
+      const NativeObserver = MutationObserver;
+      globalThis.MutationObserver = class extends NativeObserver {
+        constructor(callback) {super((...args) => {observerDeliveries++; callback(...args);});}
+        observe(target, options) {observedTargets.push(target.id || target.tagName); return super.observe(target, options);}
+      };
+    ` + initialization});
+    const page = await context.newPage();
+    const errors = [];
+    const messages = [];
+    page.on('console', message => messages.push(message.text()));
+    page.on('pageerror', error => errors.push(error.message));
+    const finished = page.waitForEvent('console', {
+      predicate: message => message.text().includes('requesting return'), timeout: 5000
+    });
+    await page.goto(origin + '/index.php');
+    await finished;
+    const monitoring = JSON.parse(messages.find(message => message.startsWith('MONITOR:')).slice(9));
+    assert(monitoring.targets.length > 0);
+    assert(!monitoring.targets.includes('BODY'), 'ready controls must not observe the whole page');
+    assert(monitoring.deliveries <= 3, 'unrelated article mutations must not repeatedly inspect status');
+    await page.waitForURL(origin + '/index.php');
+    assert.equal(submissions, 1);
+    assert.deepEqual(errors, []);
+    console.log('PASS: visible unrelated signed text ignored; hidden !important ignored; no body text scan or article observer');
+  } finally {
+    await context.close();
+  }
+}
+
+async function testTimeoutRecheck(browser, pending = false) {
+  const context = await browser.newContext();
+  try {
+    let signed = false;
+    let submissions = 0;
+    let inspections = 0;
+    await context.route('**/*', async route => {
+      const request = route.request();
+      const url = new URL(request.url());
+      assert.equal(url.origin, origin);
+      if (url.pathname === '/checkin') {
+        submissions++;
+        signed = true;
+        await route.fulfill({contentType: 'text/plain', body: 'ok'});
+        return;
+      }
+      let html = `<a id="k_misign_topb">${signed ? '今日已签' : '签到'}</a>`;
+      if (url.pathname === '/plugin.php') {
+        if (!request.isNavigationRequest()) inspections++;
+        html = signed ? '<div><span>您的签到排名：</span><strong>31641</strong></div>' : `
+          <a id="JD_sign" href="${signPath}&operation=qiandao&format=text">签到</a>
+          <script>
+            document.querySelector('#JD_sign').addEventListener('click', async event => {
+              event.preventDefault();
+              await fetch('/checkin');
+              console.info('SUBMITTED_WITHOUT_UI');
+            });
+          </script>`;
+      }
+      await route.fulfill({contentType: 'text/html; charset=utf-8', body: '<!doctype html><body>' + html});
+    });
+    await context.addInitScript({content: `
+      const nativeFetch = fetch;
+      globalThis.fetch = (input, options) => {
+        if (location.pathname === '/plugin.php' && String(input).includes('id=k_misign:sign')) {
+          console.info('RECHECK_REQUEST');
+          if (${pending}) return new Promise(() => {});
+        }
+        return nativeFetch(input, options);
+      };
+    ` + initialization});
+    const page = await context.newPage();
+    await page.clock.install();
+    await page.clock.pauseAt(new Date(Date.now() + 1000));
+    const messages = [];
+    page.on('console', message => messages.push(message.text()));
+    const submitted = page.waitForEvent('console', {
+      predicate: message => message.text() === 'SUBMITTED_WITHOUT_UI', timeout: 5000
+    });
+    await page.goto(origin + '/index.php');
+    await submitted;
+    const notified = page.waitForEvent('console', {
+      predicate: message => message.text().startsWith('NOTIFICATION:'), timeout: 5000
+    });
+    await page.clock.runFor(12000);
+    if (pending) {
+      assert.equal(await page.evaluate(() => sessionStorage.getItem('sxsy:auto-checkin:return-page')), origin + '/index.php');
+      await page.clock.runFor(4000);
+    }
+    await notified;
+    if (pending) {
+      assert.equal(page.url(), origin + signPath);
+    } else {
+      const returned = page.waitForURL(origin + '/index.php');
+      await page.clock.runFor(500);
+      await returned;
+    }
+    assert.equal(submissions, 1);
+    assert.equal(inspections, pending ? 1 : 2);
+    assert.equal(messages.filter(message => message === 'RECHECK_REQUEST').length, 1);
+    assert.equal(messages.filter(message => message.startsWith('NOTIFICATION:')).length, 1);
+    assert.equal(await page.evaluate(() => sessionStorage.getItem('sxsy:auto-checkin:return-page')), null);
+    console.log(`PASS: timed-out UI, recheck=${pending ? 'stalled and bounded' : 'signed and returned'}; one submission/notification, source retained during recheck`);
+  } finally {
+    await context.close();
+  }
+}
+
+async function testPersonalRankingLayouts(browser) {
+  const context = await browser.newContext();
+  try {
+    const layouts = [
+      '您的签到排名：31641',
+      '<div>您的签到排名：31641<p>其他帳號：已签到</p></div>',
+      '<div><span>您的签到排名：</span><strong>31641</strong></div>'
+    ];
+    await context.route('**/*', route => {
+      const index = Number(new URL(route.request().url()).searchParams.get('layout'));
+      return route.fulfill({contentType: 'text/html; charset=utf-8', body: '<!doctype html><body>' + layouts[index]});
+    });
+    await context.addInitScript({content: initialization});
+    const page = await context.newPage();
+    for (let index = 0; index < layouts.length; index++) {
+      const stayed = page.waitForEvent('console', {
+        predicate: message => message.text().includes('Stay on the manually opened sign-in page'), timeout: 5000
+      });
+      await page.goto(origin + signPath + '&layout=' + index);
+      await stayed;
+      assert.equal(page.url(), origin + signPath + '&layout=' + index);
+    }
+    console.log('PASS: personal ranking in raw body, direct text, or nested labels is recognized without navigation');
+  } finally {
+    await context.close();
+  }
+}
+
 async function main() {
   const browser = await chromium.launch({ channel: 'chrome', headless: true });
   try {
@@ -193,6 +366,10 @@ async function main() {
     await testReportedFlow(browser, '今日已签', false);
     await testUnrelatedDialogs(browser);
     await testInterruptedReturn(browser);
+    await testRestrictedStatusAndObserver(browser);
+    await testTimeoutRecheck(browser);
+    await testTimeoutRecheck(browser, true);
+    await testPersonalRankingLayouts(browser);
     const context = await browser.newContext();
     let signed = false;
     let submissions = 0;

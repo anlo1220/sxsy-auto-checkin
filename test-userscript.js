@@ -20,6 +20,7 @@ function element(text = '') {
 
 async function runScenario(url, {
   bodyText = '',
+  statusText = '',
   buttonResult = null,
   remoteState = 'unsigned',
   returnPage = '',
@@ -52,6 +53,7 @@ async function runScenario(url, {
   let retry;
   const body = element(bodyText);
   const button = buttonResult ? element() : null;
+  const status = element(statusText);
 
   const schedule = (callback, delay, repeat = false) => {
     const id = ++nextTimer;
@@ -83,9 +85,9 @@ async function runScenario(url, {
       clicks += 1;
       if (throwOnce && clicks === 1) throw new Error('click failed');
       const finish = () => {
-        if (buttonResult === 'success') Object.assign(body, element('签到成功'));
+        if (buttonResult === 'success') Object.assign(status, element('签到成功'));
         if (buttonResult === 'alert-success') window.alert('签到成功');
-        if (buttonResult === 'short-success') Object.assign(body, element('今日已签'));
+        if (buttonResult === 'short-success') Object.assign(button, element('今日已签'));
       };
       if (successDelay) schedule(finish, successDelay);
       else finish();
@@ -102,7 +104,8 @@ async function runScenario(url, {
       return null;
     },
     querySelectorAll(selector) {
-      return topLabel && selector.includes('#k_misign_topb') ? [element(topLabel)] : [];
+      if (selector.includes('#k_misign_topb')) return [status, button, element(topLabel)].filter(Boolean);
+      return selector === 'p, div, span, li, td, th, strong' ? [element(bodyText)] : [];
     }
   };
   const location = {
@@ -133,7 +136,9 @@ async function runScenario(url, {
     ranked: '您的签到排名：31641',
     unsigned: '您今天还没有签到',
     login: '',
-    unknown: ''
+    unknown: '',
+    'unrelated-signed': '帖子：已签到',
+    'quoted-ranking': '文章：您的签到排名：31641'
   }[remoteState] || '';
   class DOMParser {
     parseFromString() {
@@ -144,11 +149,14 @@ async function runScenario(url, {
             return remoteState === 'login' ? element() : null;
           }
           if (selector === '#JD_sign[href*="operation=qiandao"][href*="format=text"]') {
-            return remoteState === 'unsigned' ? element() : null;
+            return ['unsigned', 'unrelated-signed'].includes(remoteState) ? element() : null;
           }
           return null;
         },
-        querySelectorAll() { return []; }
+        querySelectorAll(selector) {
+          if (selector.includes('#k_misign_topb')) return remoteState === 'signed' ? [element(remoteText)] : [];
+          return selector === 'p, div, span, li, td, th, strong' ? [element(remoteText)] : [];
+        }
       };
     }
   }
@@ -258,6 +266,12 @@ async function main() {
   assert.deepEqual(await runScenario('https://sxsy18.com/forum.php?mod=viewthread&tid=1'), []);
   assert.deepEqual(await runScenario('https://sxsy18.com/forum.php?mod=forumdisplay&fid=2'), []);
   assert.deepEqual(await runScenario('https://sxsy18.com/', { bodyText: '帖子内容：我已签到' }), [signPage]);
+  assert.deepEqual(await runScenario('https://sxsy18.com/', { remoteState: 'unrelated-signed' }), [signPage]);
+  assert.deepEqual(await runScenario('https://sxsy18.com/', { remoteState: 'quoted-ranking' }), []);
+  assert.deepEqual(await runScenario(signPage, {
+    bodyText: '帖子：已签到；别人的签到成功', buttonResult: 'success',
+    inspect(result) { assert.equal(result.clicks, 1); }
+  }), ['https://sxsy18.com/']);
   assert.deepEqual(await runScenario('https://sxsy18.com/', { remoteState: 'signed' }), []);
   assert.deepEqual(await runScenario('https://sxsy18.com/', { remoteState: 'unknown' }), []);
   assert.deepEqual(await runScenario('https://sxsy18.com/', { remoteState: 'login' }), []);
@@ -285,7 +299,7 @@ async function main() {
     }
   }), []);
   const previousPage = 'https://sxsy18.com/search.php?mod=forum';
-  assert.deepEqual(await runScenario(signPage, { bodyText: '已签到', returnPage: previousPage }), [previousPage]);
+  assert.deepEqual(await runScenario(signPage, { statusText: '已签到', returnPage: previousPage }), [previousPage]);
   assert.deepEqual(await runScenario(signPage, { bodyText: '您的签到排名：31641', returnPage: previousPage }), [previousPage]);
   assert.deepEqual(await runScenario(signPage, {
     bodyText: '您今天还没有签到',
@@ -303,10 +317,10 @@ async function main() {
     returnPage: slashSignPage
   }), ['https://sxsy18.com/']);
   assert.deepEqual(await runScenario(signPage, {bodyText: '您的签到排名：31641', referrer: previousPage}), []);
-  assert.deepEqual(await runScenario(signPage, {bodyText: '已签到', returnPage: slashSignPage}), []);
-  assert.deepEqual(await runScenario(signPage, {bodyText: '已签到', returnPage: 'https://example.com/'}), []);
+  assert.deepEqual(await runScenario(signPage, {statusText: '已签到', returnPage: slashSignPage}), []);
+  assert.deepEqual(await runScenario(signPage, {statusText: '已签到', returnPage: 'https://example.com/'}), []);
   assert.deepEqual(await runScenario(signPage, {
-    bodyText: '已签到', returnPage: previousPage, returnEnabled: false,
+    statusText: '已签到', returnPage: previousPage, returnEnabled: false,
     inspect(result) { assert.equal(result.storage.size, 0); }
   }), []);
   assert.deepEqual(await runScenario(signPage, {
@@ -341,7 +355,65 @@ async function main() {
   assert.deepEqual(await runScenario(signPage, {
     bodyText: '您今天还没有签到', buttonResult: 'success', storageBlocked: true, referrer: previousPage
   }), [previousPage]);
-  assert.deepEqual(await runScenario(signPage, {bodyText: '已签到', storageBlocked: true}), []);
+  assert.deepEqual(await runScenario(signPage, {statusText: '已签到', storageBlocked: true}), []);
+  assert.deepEqual(await runScenario(signPage, {
+    buttonResult: 'failure', remoteState: 'ranked', returnPage: previousPage,
+    inspect(result) {
+      assert.equal(result.clicks, 1);
+      assert.equal(result.fetchCalls, 1);
+      assert.deepEqual(result.navigationTimes, [12500]);
+      assert.deepEqual(result.notifications, ['尚香书苑：簽到成功']);
+      assert.equal(result.storage.get('sxsy:auto-checkin:return-page'), previousPage);
+    }
+  }), [previousPage]);
+  assert.deepEqual(await runScenario(signPage, {
+    buttonResult: 'failure', remoteState: 'ranked', returnEnabled: false,
+    inspect(result) {
+      assert.equal(result.clicks, 1);
+      assert.equal(result.fetchCalls, 1);
+      assert.equal(result.notifications.length, 1);
+      assert.equal(result.storage.size, 0);
+    }
+  }), []);
+  assert.deepEqual(await runScenario(signPage, {
+    buttonResult: 'alert-success', successDelay: 100, returnPage: previousPage,
+    inspect(result) {
+      assert.deepEqual(result.navigationTimes, [600], 'native success alert must wake the wait without polling delay');
+      assert.equal(result.fetchCalls, 0);
+    }
+  }), [previousPage]);
+  assert.deepEqual(await runScenario(signPage, {
+    buttonResult: 'success', successDelay: 13000, remoteState: 'pending', returnPage: previousPage,
+    inspect(result) {
+      assert.equal(result.clicks, 1);
+      assert.equal(result.fetchCalls, 1);
+      assert.deepEqual(result.navigationTimes, [16500]);
+      assert.deepEqual(result.notifications, ['尚香书苑：簽到成功']);
+    }
+  }), [previousPage]);
+  for (const remoteState of ['unknown', 'login', 'http-error', 'network-error']) {
+    assert.deepEqual(await runScenario(signPage, {
+      buttonResult: 'failure', remoteState, returnPage: previousPage,
+      inspect(result) {
+        assert.equal(result.clicks, 1);
+        assert.equal(result.fetchCalls, 1);
+        assert.equal(result.notifications.length, 1);
+        assert.equal(result.storage.size, 0);
+      }
+    }), []);
+  }
+  for (const remoteState of ['pending', 'text-pending']) {
+    assert.deepEqual(await runScenario(signPage, {
+      buttonResult: 'failure', remoteState, returnPage: previousPage, retryAt: [13000],
+      inspect(result) {
+        assert.equal(result.clicks, 1, 'unconfirmed submission must not be resent automatically');
+        assert.equal(result.fetchCalls, 1);
+        assert.equal(result.now, 16000, 'recheck is limited to four seconds');
+        assert.equal(result.notifications.length, 1);
+        assert.equal(result.storage.size, 0);
+      }
+    }), []);
+  }
   for (const remoteState of ['ranked', 'http-error', 'network-error']) {
     assert.deepEqual(await runScenario('https://sxsy18.com/', {remoteState}), []);
   }
@@ -375,7 +447,7 @@ async function main() {
     bodyText: '签到成功', storage: fallbackStorage
   }), ['https://sxsy18.com/']);
   assert.deepEqual(await runScenario(signPage, {
-    bodyText: '已签到', storage: fallbackStorage
+    statusText: '已签到', storage: fallbackStorage
   }), ['https://sxsy18.com/']);
   assert.deepEqual(await runScenario(previousPage, {
     returnPage: previousPage,
